@@ -1,8 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
 import { Box, FolderOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
-import { useEffect } from "react";
-import { HostKeyDialog, Toasts, UnlockDialog } from "./components/Dialogs";
+import { useEffect, useState } from "react";
+import { AuthPromptDialog, HostKeyDialog, Toasts, UnlockDialog, useAppErrors } from "./components/Dialogs";
+import { ForwardsDialog } from "./components/ForwardsDialog";
 import { HostEditor } from "./components/HostEditor";
 import { DockerSidebar, HostsSidebar } from "./components/HostsSidebar";
 import { ImportDialog } from "./components/ImportDialog";
@@ -61,11 +62,12 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
 }
 
 export default function App() {
+  useAppErrors();
   const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, vault, refreshVault, refreshHosts, loadSettings, toast } = useApp();
 
   useEffect(() => {
-    loadSettings();
-    refreshHosts();
+    Promise.all([loadSettings(), refreshHosts()]).then(() => useApp.getState().restoreSession());
+    useApp.getState().refreshForwards();
     refreshVault().then(async () => {
       const v = useApp.getState().vault;
       if (v.exists && !v.unlocked && v.remembered) {
@@ -85,6 +87,20 @@ export default function App() {
       un.then((f) => f());
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist open tabs (debounced) once the previous session has been restored.
+  const sessionReady = useApp((s) => s.sessionReady);
+  useEffect(() => {
+    if (!sessionReady) return;
+    const t = setTimeout(() => api.sessionSave({ tabs, activeTab }).catch(() => {}), 400);
+    return () => clearTimeout(t);
+  }, [tabs, activeTab, sessionReady]);
+
+  // Mount a tab's content only once it has been shown, so restored tabs connect lazily.
+  const [visited, setVisited] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (activeTab && !visited.has(activeTab)) setVisited((v) => new Set(v).add(activeTab));
+  }, [activeTab, visited]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -113,7 +129,7 @@ export default function App() {
     <div className="flex h-full">
       {/* Rail */}
       <nav className="flex w-12 flex-col items-center gap-1 border-r border-border bg-surface-1 py-2">
-        <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-mono text-xs font-bold text-white">&gt;_</div>
+        <img src="/logo.svg" alt="Shellport" className="mb-2 h-9 w-9" draggable={false} />
         <RailButton title="Hosts" active={sidebar === "hosts"} onClick={() => setSidebar("hosts")}>
           <Server size={18} />
         </RailButton>
@@ -190,7 +206,7 @@ export default function App() {
           )}
           {tabs.map((t) => (
             <div key={t.id} className={clsx("absolute inset-0", t.id === activeTab ? "visible" : "invisible")}>
-              <TabContent t={t} active={t.id === activeTab} />
+              {(visited.has(t.id) || t.id === activeTab) && <TabContent t={t} active={t.id === activeTab} />}
             </div>
           ))}
         </div>
@@ -199,6 +215,8 @@ export default function App() {
       <HostEditor />
       <ImportDialog />
       <HostKeyDialog />
+      <AuthPromptDialog />
+      <ForwardsDialog />
       <UnlockDialog />
       <Toasts />
     </div>

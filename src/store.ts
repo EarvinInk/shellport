@@ -33,6 +33,12 @@ interface AppStore {
   hostEditor: Host | "new" | null;
   importOpen: boolean;
   unlockPrompt: boolean;
+  forwards: { hostId: string; forwardId: string }[];
+  forwardsHost: string | null;
+  setForwardsHost: (id: string | null) => void;
+  refreshForwards: () => Promise<void>;
+  sessionReady: boolean;
+  restoreSession: () => Promise<void>;
 
   openTab: (t: TabInput, opts?: { unique?: boolean }) => string;
   closeTab: (id: string) => void;
@@ -68,6 +74,37 @@ export const useApp = create<AppStore>((set, get) => ({
   hostEditor: null,
   importOpen: false,
   unlockPrompt: false,
+  forwards: [],
+  forwardsHost: null,
+  sessionReady: false,
+  restoreSession: async () => {
+    try {
+      const st = get();
+      if (st.settings?.restoreTabs === false) return;
+      const sess = (await api.sessionLoad()) as { tabs?: Tab[]; activeTab?: string | null } | null;
+      if (!sess?.tabs?.length) return;
+      const hostIds = new Set(st.hosts.map((h) => h.id));
+      const tabs = sess.tabs.filter((t) => {
+        if ("hostId" in t) return hostIds.has(t.hostId);
+        if ("endpoint" in t) return t.endpoint === "local" || hostIds.has(t.endpoint);
+        return true;
+      });
+      const activeTab = tabs.some((t) => t.id === sess.activeTab) ? sess.activeTab! : (tabs[0]?.id ?? null);
+      set({ tabs: [...tabs, ...st.tabs], activeTab: st.activeTab ?? activeTab });
+    } catch {
+      /* corrupt session file: start fresh */
+    } finally {
+      set({ sessionReady: true });
+    }
+  },
+  setForwardsHost: (forwardsHost) => set({ forwardsHost }),
+  refreshForwards: async () => {
+    try {
+      set({ forwards: await api.forwardsActive() });
+    } catch {
+      /* ignore */
+    }
+  },
 
   openTab: (t, opts) => {
     if (opts?.unique) {

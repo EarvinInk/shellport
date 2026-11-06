@@ -48,6 +48,7 @@ export function SettingsView() {
           <div className="flex gap-6">
             <Checkbox label="Blinking cursor" checked={s.cursorBlink} onChange={(v) => set("cursorBlink", v)} />
             <Checkbox label="Copy on select" checked={s.copyOnSelect} onChange={(v) => set("copyOnSelect", v)} />
+            <Checkbox label="Restore tabs on startup" checked={s.restoreTabs} onChange={(v) => set("restoreTabs", v)} />
           </div>
           <p className="text-xs text-fg-subtle">Shortcuts: Ctrl+Shift+C copy · Ctrl+Shift+V paste · Ctrl+Shift+F search · Ctrl+Shift+T new local tab · Ctrl+Shift+W close tab</p>
         </section>

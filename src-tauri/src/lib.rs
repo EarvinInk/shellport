@@ -70,6 +70,9 @@ pub fn run() {
             commands::host_disconnect,
             commands::host_test,
             commands::hostkey_respond,
+            commands::auth_prompt_respond,
+            commands::forwards_active,
+            commands::forward_stop,
             commands::ssh_config_preview,
             commands::ssh_config_import,
             commands::forward_start,
@@ -116,6 +119,8 @@ pub fn run() {
             commands::docker_logs_multi,
             commands::settings_get,
             commands::settings_save,
+            commands::session_load,
+            commands::session_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shellport");

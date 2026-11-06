@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { Boxes, Container, Database, Download, Eraser, FileText, HardDrive, Info, Layers, Loader2, Network, Plus, RotateCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { TerminalView } from "../components/TerminalView";
-import { Badge, Button, Checkbox, Empty, IconButton, Input, Modal } from "../components/ui";
+import { Badge, Button, Checkbox, Empty, Field, IconButton, Input, Modal, Select } from "../components/ui";
 import { api, formatBytes } from "../lib/ipc";
 import type { NetworkInfo, PruneResult, PruneTarget, UsageRow, VolumeInfo } from "../lib/types";
 import { useApp } from "../store";
@@ -555,9 +555,13 @@ export function NetworksPanel({ endpoint, active, filter }: { endpoint: string; 
 // ---------------- Image pull ----------------
 
 export function PullDialog({ endpoint, onClose, onDone }: { endpoint: string; onClose: () => void; onDone: () => void }) {
+  const { secrets, vault, setUnlockPrompt } = useApp();
   const [ref, setRef] = useState("");
+  const [secretId, setSecretId] = useState("");
   const [started, setStarted] = useState<string | null>(null);
   const [finished, setFinished] = useState(false);
+  const creds = secrets.filter((s) => (s.kind === "password" || s.kind === "token") && s.username);
+  const start = () => ref.trim() && setStarted(ref.trim());
   return (
     <Modal
       title="Pull image"
@@ -569,7 +573,7 @@ export function PullDialog({ endpoint, onClose, onDone }: { endpoint: string; on
             {finished ? "Close" : "Run in background"}
           </Button>
         ) : (
-          <Button variant="primary" disabled={!ref.trim()} onClick={() => setStarted(ref.trim())}>
+          <Button variant="primary" disabled={!ref.trim()} onClick={start}>
             <Download size={14} /> Pull
           </Button>
         )
@@ -577,20 +581,49 @@ export function PullDialog({ endpoint, onClose, onDone }: { endpoint: string; on
     >
       {!started ? (
         <form
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (ref.trim()) setStarted(ref.trim());
+            start();
           }}
         >
-          <Input autoFocus placeholder="nginx:alpine, ghcr.io/org/app:1.2" value={ref} onChange={(e) => setRef(e.target.value)} />
-          <p className="mt-2 text-xs text-fg-subtle">Public registries only; private registry login isn't supported yet.</p>
+          <Field label="Image reference">
+            <Input autoFocus placeholder="nginx:alpine · ghcr.io/org/app:1.2 · registry.example.com:5000/app" value={ref} onChange={(e) => setRef(e.target.value)} />
+          </Field>
+          <Field
+            label="Registry credentials"
+            hint={
+              vault.unlocked
+                ? "A vault password or token secret with a username. Leave empty for public images."
+                : undefined
+            }
+          >
+            {vault.unlocked ? (
+              <Select value={secretId} onChange={(e) => setSecretId(e.target.value)}>
+                <option value="">— none (public image) —</option>
+                {creds.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.username})
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <div className="flex items-center gap-3 text-sm text-fg-muted">
+                Vault is locked.
+                <Button size="sm" type="button" onClick={() => setUnlockPrompt(true)}>
+                  Unlock to use credentials
+                </Button>
+              </div>
+            )}
+          </Field>
+          <button type="submit" className="hidden" />
         </form>
       ) : (
         <div className="h-72 overflow-hidden rounded-lg border border-border">
           <TerminalView
             active
             readOnly
-            open={(_c, _r, ch) => api.dockerImagePull(endpoint, started, ch)}
+            open={(_c, _r, ch) => api.dockerImagePull(endpoint, started, secretId || null, ch)}
             onClosed={() => {
               setFinished(true);
               onDone();

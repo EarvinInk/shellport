@@ -509,22 +509,63 @@ impl DockerBackend {
 }
 
 /// Pull an image, streaming progress lines into `out`.
-pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, out: Channel<TermEvent>) -> Result<String> {
+/// Registry host of an image reference ("docker.io" when none is given).
+pub fn registry_of(reference: &str) -> String {
+    match reference.split_once('/') {
+        Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => first.to_string(),
+        _ => "docker.io".to_string(),
+    }
+}
+
+/// Registry credentials taken from a vault secret (username + password/token).
+pub struct RegistryAuth {
+    pub username: String,
+    pub password: zeroize::Zeroizing<String>,
+}
+
+pub fn registry_auth(app: &AppHandle, secret_id: &str) -> Result<RegistryAuth> {
+    let state = app.state::<AppState>();
+    let vault = state.vault.lock();
+    if !vault.is_unlocked() {
+        bail!("unlock the vault to use registry credentials");
+    }
+    let s = vault.get(secret_id)?;
+    let username = s.username.clone().filter(|u| !u.is_empty()).ok_or_else(|| anyhow::anyhow!("secret '{}' has no username set", s.name))?;
+    Ok(RegistryAuth { username, password: zeroize::Zeroizing::new(s.value.clone()) })
+}
+
+pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, secret_id: Option<String>, out: Channel<TermEvent>) -> Result<String> {
     valid_name(&reference, ":/@")?;
+    let auth = secret_id.as_deref().filter(|s| !s.is_empty()).map(|id| registry_auth(&app, id)).transpose()?;
+    let registry = registry_of(&reference);
     let b = backend(&app, &endpoint).await?;
     let task_id = format!("pull:{}", uuid::Uuid::new_v4());
     let h = match &*b {
         DockerBackend::Api { docker, .. } => {
-            let (image, tag) = match reference.rsplit_once(':').filter(|(_, t)| !t.contains('/')) {
-                Some((i, t)) => (i.to_string(), t.to_string()),
-                None => (reference.clone(), "latest".to_string()),
+            // Digest references are pulled as-is; otherwise split off the tag.
+            let (image, tag) = if reference.contains('@') {
+                (reference.clone(), String::new())
+            } else {
+                match reference.rsplit_once(':').filter(|(_, t)| !t.contains('/')) {
+                    Some((i, t)) => (i.to_string(), t.to_string()),
+                    None => (reference.clone(), "latest".to_string()),
+                }
             };
+            let creds = auth.as_ref().map(|a| bollard::auth::DockerCredentials {
+                username: Some(a.username.clone()),
+                password: Some(a.password.to_string()),
+                serveraddress: Some(if registry == "docker.io" { "https://index.docker.io/v1/".into() } else { registry.clone() }),
+                ..Default::default()
+            });
             let docker = docker.clone();
             let b = b.clone();
             tokio::spawn(async move {
                 let _keep = b;
-                let opts = CreateImageOptionsBuilder::new().from_image(&image).tag(&tag).build();
-                let mut stream = docker.create_image(Some(opts), None, None);
+                let mut builder = CreateImageOptionsBuilder::new().from_image(&image);
+                if !tag.is_empty() {
+                    builder = builder.tag(&tag);
+                }
+                let mut stream = docker.create_image(Some(builder.build()), None, creds);
                 let mut last: HashMap<String, String> = HashMap::new();
                 while let Some(item) = stream.next().await {
                     match item {
@@ -553,7 +594,22 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, out
         }
         DockerBackend::Cli { conn } => {
             let mut ch = conn.handle.channel_open_session().await?;
-            ch.exec(true, format!("docker pull {} 2>&1", shell_quote(&reference))).await?;
+            match &auth {
+                // Log in to a throwaway DOCKER_CONFIG so nothing is persisted on the server;
+                // the password goes over stdin, never on the command line.
+                Some(a) => {
+                    let script = format!(
+                        "D=$(mktemp -d) && trap 'rm -rf \"$D\"' EXIT && DOCKER_CONFIG=\"$D\" docker login -u {} --password-stdin {} >/dev/null && DOCKER_CONFIG=\"$D\" docker pull {}",
+                        shell_quote(&a.username),
+                        shell_quote(&registry),
+                        shell_quote(&reference)
+                    );
+                    ch.exec(true, format!("sh -c {} 2>&1", shell_quote(&script))).await?;
+                    ch.data(a.password.as_bytes()).await?;
+                    ch.eof().await?;
+                }
+                None => ch.exec(true, format!("docker pull {} 2>&1", shell_quote(&reference))).await?,
+            }
             let conn = conn.clone();
             tokio::spawn(async move {
                 let _keep = conn;
@@ -772,6 +828,10 @@ mod tests {
         assert!(valid_name("bad name", "").is_err());
         assert!(valid_name("ghcr.io/org/img:1.2@sha256:abc", ":/@").is_ok());
         assert!(valid_name("x;rm -rf", ":/@").is_err());
+        assert_eq!(registry_of("nginx:alpine"), "docker.io");
+        assert_eq!(registry_of("library/nginx"), "docker.io");
+        assert_eq!(registry_of("ghcr.io/org/app:1"), "ghcr.io");
+        assert_eq!(registry_of("localhost:5000/app"), "localhost:5000");
     }
 }
 

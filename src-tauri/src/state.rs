@@ -24,7 +24,9 @@ pub struct AppState {
     /// Background tasks that can be cancelled (log streams, port forwards, transfers).
     pub tasks: Mutex<HashMap<String, AbortHandle>>,
     /// Host key confirmations waiting on the user.
-    pub hostkey_pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub hostkey_pending: Arc<Mutex<HashMap<String, oneshot::Sender<crate::ssh::HostKeyDecision>>>>,
+    /// Keyboard-interactive (2FA) prompts waiting on the user; None = cancelled.
+    pub auth_pending: Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             terms: Default::default(),
             tasks: Default::default(),
             hostkey_pending: Default::default(),
+            auth_pending: Default::default(),
         })
     }
 

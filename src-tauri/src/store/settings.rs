@@ -16,6 +16,8 @@ pub struct Settings {
     pub auto_lock_minutes: u32,
     pub local_shell: String,
     pub docker_log_tail: u32,
+    /// Reopen the previous session's tabs on startup (they connect when first shown).
+    pub restore_tabs: bool,
 }
 
 impl Default for Settings {
@@ -31,6 +33,7 @@ impl Default for Settings {
             auto_lock_minutes: 15,
             local_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()),
             docker_log_tail: 500,
+            restore_tabs: true,
         }
     }
 }

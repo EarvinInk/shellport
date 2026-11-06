@@ -15,9 +15,9 @@ export const THEMES: Record<string, ITheme> = {
   "shellport-dark": {
     background: "#0b0e13",
     foreground: "#dfe4ec",
-    cursor: "#14b8a6",
+    cursor: "#a78bfa",
     cursorAccent: "#0b0e13",
-    selectionBackground: "#14b8a644",
+    selectionBackground: "#8b5cf655",
     black: "#1b2029",
     red: "#f7768e",
     green: "#9ece6a",
@@ -82,8 +82,8 @@ export const THEMES: Record<string, ITheme> = {
   "light": {
     background: "#fafafa",
     foreground: "#383a42",
-    cursor: "#0d9488",
-    selectionBackground: "#0d948833",
+    cursor: "#7c3aed",
+    selectionBackground: "#7c3aed33",
     black: "#383a42",
     red: "#e45649",
     green: "#50a14f",
@@ -309,7 +309,7 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
 
   const doSearch = (next: boolean) => {
     if (!query) return;
-    const opts = { decorations: { matchOverviewRuler: "#14b8a6", activeMatchColorOverviewRuler: "#f59e0b", matchBackground: "#14b8a655", activeMatchBackground: "#f59e0b88" } };
+    const opts = { decorations: { matchOverviewRuler: "#8b5cf6", activeMatchColorOverviewRuler: "#f59e0b", matchBackground: "#8b5cf655", activeMatchBackground: "#f59e0b88" } };
     if (next) search.current?.findNext(query, opts);
     else search.current?.findPrevious(query, opts);
   };

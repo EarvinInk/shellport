@@ -1,7 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import clsx from "clsx";
-import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, File, Folder, FolderPlus, Home, Link2, Pencil, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, File, Folder, FolderPlus, Home, Link2, Pencil, RefreshCw, Shield, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, IconButton, Input, Modal } from "../components/ui";
 import { api, errMsg, formatBytes, modeString } from "../lib/ipc";
@@ -15,8 +15,9 @@ interface Transfer {
   bytes: number;
   total: number;
   files: number;
-  state: "running" | "done" | "error";
+  state: "running" | "done" | "error" | "cancelled";
   message?: string;
+  taskId: string;
 }
 
 let tSeq = 1;
@@ -90,7 +91,8 @@ export function SftpView({ hostId, active }: { hostId: string; active: boolean }
   const run = (dir: "up" | "down", source: string, destDir: string) => {
     const id = tSeq++;
     const name = source.split("/").filter(Boolean).pop() ?? source;
-    setTransfers((t) => [{ id, dir, name, bytes: 0, total: 0, files: 0, state: "running" }, ...t]);
+    const taskId = `xfer:${hostId}:${id}:${Date.now()}`;
+    setTransfers((t) => [{ id, dir, name, bytes: 0, total: 0, files: 0, state: "running", taskId }, ...t]);
     const upd = (p: Partial<Transfer>) => setTransfers((t) => t.map((x) => (x.id === id ? { ...x, ...p } : x)));
     const ch = new Channel<TransferEvent>();
     ch.onmessage = (ev) => {
@@ -100,9 +102,9 @@ export function SftpView({ hostId, active }: { hostId: string; active: boolean }
         if (dir === "up") remoteRef.current.refresh();
         else localRef.current.refresh();
       }
-      if (ev.type === "error") upd({ state: "error", message: ev.message });
+      if (ev.type === "error") upd(ev.message === "cancelled" ? { state: "cancelled" } : { state: "error", message: ev.message });
     };
-    const p = dir === "up" ? api.sftpUpload(hostId, source, destDir, ch) : api.sftpDownload(hostId, source, destDir, ch);
+    const p = dir === "up" ? api.sftpUpload(hostId, source, destDir, taskId, ch) : api.sftpDownload(hostId, source, destDir, taskId, ch);
     p.catch((e) => upd({ state: "error", message: errMsg(e) }));
   };
 
@@ -197,12 +199,27 @@ export function SftpView({ hostId, active }: { hostId: string; active: boolean }
               <span className="w-48 truncate">{t.name}</span>
               <div className="h-1.5 flex-1 overflow-hidden rounded bg-surface-3">
                 <div
-                  className={clsx("h-full", t.state === "error" ? "bg-danger" : t.state === "done" ? "bg-ok" : "bg-accent")}
+                  className={clsx("h-full", t.state === "error" || t.state === "cancelled" ? "bg-danger" : t.state === "done" ? "bg-ok" : "bg-accent")}
                   style={{ width: `${t.total ? Math.min(100, (t.bytes / t.total) * 100) : t.state === "done" ? 100 : 5}%` }}
                 />
               </div>
-              <span className="w-40 text-right text-fg-muted">
-                {t.state === "error" ? <span className="text-danger" title={t.message}>failed</span> : `${formatBytes(t.bytes)} / ${formatBytes(t.total)} · ${t.files} files`}
+              <span className="w-44 text-right text-fg-muted">
+                {t.state === "error" ? (
+                  <span className="text-danger" title={t.message}>
+                    failed: {t.message}
+                  </span>
+                ) : t.state === "cancelled" ? (
+                  <span className="text-warn">cancelled</span>
+                ) : (
+                  `${formatBytes(t.bytes)} / ${formatBytes(t.total)} · ${t.files} files`
+                )}
+              </span>
+              <span className="w-6">
+                {t.state === "running" && (
+                  <IconButton title="Cancel transfer" className="h-6 w-6" onClick={() => api.taskCancel(t.taskId)}>
+                    <X size={12} />
+                  </IconButton>
+                )}
               </span>
             </div>
           ))}

@@ -45,7 +45,10 @@ export const api = {
   hostDelete: (id: string) => invoke<void>("host_delete", { id }),
   hostDisconnect: (id: string) => invoke<void>("host_disconnect", { id }),
   hostTest: (id: string) => invoke<string>("host_test", { id }),
-  hostkeyRespond: (requestId: string, accept: boolean) => invoke<void>("hostkey_respond", { requestId, accept }),
+  hostkeyRespond: (requestId: string, decision: "reject" | "once" | "trust") => invoke<void>("hostkey_respond", { requestId, decision }),
+  authPromptRespond: (requestId: string, answers: string[] | null) => invoke<void>("auth_prompt_respond", { requestId, answers }),
+  forwardsActive: () => invoke<{ hostId: string; forwardId: string }[]>("forwards_active"),
+  forwardStop: (hostId: string, forwardId: string) => invoke<boolean>("forward_stop", { hostId, forwardId }),
   sshConfigPreview: (path?: string) => invoke<SshConfigEntry[]>("ssh_config_preview", { path }),
   sshConfigImport: (aliases: string[], path?: string) => invoke<number>("ssh_config_import", { aliases, path }),
   forwardStart: (hostId: string, forwardId: string) => invoke<string>("forward_start", { hostId, forwardId }),
@@ -72,10 +75,10 @@ export const api = {
   sftpRename: (hostId: string, from: string, to: string) => invoke<void>("sftp_rename", { hostId, from, to }),
   sftpRemove: (hostId: string, path: string) => invoke<void>("sftp_remove", { hostId, path }),
   sftpChmod: (hostId: string, path: string, mode: number) => invoke<void>("sftp_chmod", { hostId, path, mode }),
-  sftpDownload: (hostId: string, remote: string, localDir: string, onEvent: Channel<TransferEvent>) =>
-    invoke<void>("sftp_download", { hostId, remote, localDir, onEvent }),
-  sftpUpload: (hostId: string, local: string, remoteDir: string, onEvent: Channel<TransferEvent>) =>
-    invoke<void>("sftp_upload", { hostId, local, remoteDir, onEvent }),
+  sftpDownload: (hostId: string, remote: string, localDir: string, transferId: string, onEvent: Channel<TransferEvent>) =>
+    invoke<void>("sftp_download", { hostId, remote, localDir, transferId, onEvent }),
+  sftpUpload: (hostId: string, local: string, remoteDir: string, transferId: string, onEvent: Channel<TransferEvent>) =>
+    invoke<void>("sftp_upload", { hostId, local, remoteDir, transferId, onEvent }),
 
   // docker
   dockerInfo: (endpoint: string) => invoke<EndpointInfo>("docker_info", { endpoint }),
@@ -100,13 +103,16 @@ export const api = {
   dockerNetworkRemove: (endpoint: string, id: string) => invoke<void>("docker_network_remove", { endpoint, id }),
   dockerNetworkInspect: (endpoint: string, id: string) => invoke<unknown>("docker_network_inspect", { endpoint, id }),
   dockerImageRemove: (endpoint: string, reference: string, force: boolean) => invoke<string[]>("docker_image_remove", { endpoint, reference, force }),
-  dockerImagePull: (endpoint: string, reference: string, onEvent: Channel<TermEvent>) => invoke<string>("docker_image_pull", { endpoint, reference, onEvent }),
+  dockerImagePull: (endpoint: string, reference: string, secretId: string | null, onEvent: Channel<TermEvent>) =>
+    invoke<string>("docker_image_pull", { endpoint, reference, secretId, onEvent }),
   dockerProjectAction: (endpoint: string, project: string, action: DockerAction) => invoke<number>("docker_project_action", { endpoint, project, action }),
   dockerLogsMulti: (endpoint: string, containers: { id: string; name: string }[], tail: number, timestamps: boolean, follow: boolean, onEvent: Channel<TermEvent>) =>
     invoke<string>("docker_logs_multi", { endpoint, containers, tail, timestamps, follow, onEvent }),
 
   // settings
   settingsGet: () => invoke<Settings>("settings_get"),
+  sessionLoad: () => invoke<unknown>("session_load"),
+  sessionSave: (session: unknown) => invoke<void>("session_save", { session }),
   settingsSave: (settings: Settings) => invoke<Settings>("settings_save", { settings }),
 };
 

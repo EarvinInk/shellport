@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Box, FileUp, FolderOpen, Pencil, Plus, Search, Server, SquareTerminal, Terminal, Unplug } from "lucide-react";
+import { ArrowLeftRight, Box, FileUp, FolderOpen, Pencil, Plus, Search, Server, SquareTerminal, Terminal, Unplug } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Host } from "../lib/types";
@@ -88,7 +88,8 @@ export function HostsSidebar() {
 }
 
 function HostRow({ h }: { h: Host }) {
-  const { setHostEditor, toast, error } = useApp();
+  const { setHostEditor, toast, error, setForwardsHost } = useApp();
+  const activeFwd = useApp((st) => st.forwards.filter((f) => f.hostId === h.id).length);
   return (
     <div
       className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-3 cursor-pointer"
@@ -106,6 +107,7 @@ function HostRow({ h }: { h: Host }) {
         <div className="truncate text-[11px] text-fg-subtle">
           {h.username}@{h.hostname}
           {h.port !== 22 ? `:${h.port}` : ""} · {authLabel(h)}
+          {activeFwd > 0 && <span className="ml-1 text-ok">· {activeFwd} fwd</span>}
         </div>
       </div>
       <div className="hidden shrink-0 group-hover:flex">
@@ -114,6 +116,9 @@ function HostRow({ h }: { h: Host }) {
         </IconButton>
         <IconButton title="Files (SFTP)" onClick={() => openSftp(h)}>
           <FolderOpen size={14} />
+        </IconButton>
+        <IconButton title="Port forwards" onClick={() => setForwardsHost(h.id)}>
+          <ArrowLeftRight size={14} />
         </IconButton>
         <IconButton title="Docker" onClick={() => openDocker(h.id, h.name)}>
           <Box size={14} />
@@ -157,7 +162,7 @@ export function DockerSidebar() {
 function EndpointRow({ name, detail, onClick }: { name: string; detail: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-3 cursor-pointer">
-      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500/15 text-sky-400">
+      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent/15 text-accent">
         <Box size={14} />
       </div>
       <div className="min-w-0">

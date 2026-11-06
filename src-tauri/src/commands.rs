@@ -13,7 +13,7 @@ use anyhow::anyhow;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 // ---------- vault ----------
 
@@ -202,10 +202,38 @@ pub async fn host_test(app: AppHandle, id: String) -> CmdResult<String> {
 }
 
 #[tauri::command]
-pub fn hostkey_respond(state: State<'_, AppState>, request_id: String, accept: bool) {
+pub fn hostkey_respond(state: State<'_, AppState>, request_id: String, decision: crate::ssh::HostKeyDecision) {
     if let Some(tx) = state.hostkey_pending.lock().remove(&request_id) {
-        let _ = tx.send(accept);
+        let _ = tx.send(decision);
     }
+}
+
+/// Answers for a keyboard-interactive (2FA) prompt; `None` cancels the login.
+#[tauri::command]
+pub fn auth_prompt_respond(state: State<'_, AppState>, request_id: String, answers: Option<Vec<String>>) {
+    if let Some(tx) = state.auth_pending.lock().remove(&request_id) {
+        let _ = tx.send(answers);
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveForward {
+    host_id: String,
+    forward_id: String,
+}
+
+#[tauri::command]
+pub fn forwards_active(state: State<'_, AppState>) -> Vec<ActiveForward> {
+    crate::ssh::active_forwards(&state)
+        .into_iter()
+        .map(|(host_id, forward_id)| ActiveForward { host_id, forward_id })
+        .collect()
+}
+
+#[tauri::command]
+pub fn forward_stop(app: AppHandle, host_id: String, forward_id: String) -> bool {
+    crate::ssh::stop_forward(&app, &host_id, &forward_id)
 }
 
 #[tauri::command]
@@ -314,22 +342,54 @@ pub async fn sftp_chmod(app: AppHandle, host_id: String, path: String, mode: u32
     Ok(sftp::chmod(&app, &host_id, &path, mode).await?)
 }
 
-#[tauri::command]
-pub async fn sftp_download(app: AppHandle, host_id: String, remote: String, local_dir: String, on_event: Channel<TransferEvent>) -> CmdResult<()> {
-    if let Err(e) = sftp::download(&app, &host_id, &remote, &local_dir, &on_event).await {
-        let _ = on_event.send(TransferEvent::Error { message: format!("{e:#}") });
-        return Err(e.into());
+/// Run a transfer as a cancellable task (`task_cancel(transfer_id)`).
+async fn run_transfer<F>(app: &AppHandle, transfer_id: String, on_event: Channel<TransferEvent>, fut: F) -> CmdResult<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+{
+    let ev = on_event.clone();
+    let h = tokio::spawn(fut);
+    app.state::<AppState>().add_task(transfer_id.clone(), h.abort_handle());
+    let res = h.await;
+    app.state::<AppState>().tasks.lock().remove(&transfer_id);
+    match res {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            let _ = ev.send(TransferEvent::Error { message: format!("{e:#}") });
+            Err(e.into())
+        }
+        Err(j) if j.is_cancelled() => {
+            let _ = ev.send(TransferEvent::Error { message: "cancelled".into() });
+            Ok(())
+        }
+        Err(j) => Err(anyhow!("transfer task failed: {j}").into()),
     }
-    Ok(())
 }
 
 #[tauri::command]
-pub async fn sftp_upload(app: AppHandle, host_id: String, local: String, remote_dir: String, on_event: Channel<TransferEvent>) -> CmdResult<()> {
-    if let Err(e) = sftp::upload(&app, &host_id, &local, &remote_dir, &on_event).await {
-        let _ = on_event.send(TransferEvent::Error { message: format!("{e:#}") });
-        return Err(e.into());
-    }
-    Ok(())
+pub async fn sftp_download(
+    app: AppHandle,
+    host_id: String,
+    remote: String,
+    local_dir: String,
+    transfer_id: String,
+    on_event: Channel<TransferEvent>,
+) -> CmdResult<()> {
+    let (a, ev) = (app.clone(), on_event.clone());
+    run_transfer(&app, transfer_id, on_event, async move { sftp::download(&a, &host_id, &remote, &local_dir, &ev).await }).await
+}
+
+#[tauri::command]
+pub async fn sftp_upload(
+    app: AppHandle,
+    host_id: String,
+    local: String,
+    remote_dir: String,
+    transfer_id: String,
+    on_event: Channel<TransferEvent>,
+) -> CmdResult<()> {
+    let (a, ev) = (app.clone(), on_event.clone());
+    run_transfer(&app, transfer_id, on_event, async move { sftp::upload(&a, &host_id, &local, &remote_dir, &ev).await }).await
 }
 
 // ---------- docker ----------
@@ -470,8 +530,14 @@ pub async fn docker_image_remove(app: AppHandle, endpoint: String, reference: St
 }
 
 #[tauri::command]
-pub async fn docker_image_pull(app: AppHandle, endpoint: String, reference: String, on_event: Channel<TermEvent>) -> CmdResult<String> {
-    Ok(docker_admin::image_pull(app, endpoint, reference, on_event).await?)
+pub async fn docker_image_pull(
+    app: AppHandle,
+    endpoint: String,
+    reference: String,
+    secret_id: Option<String>,
+    on_event: Channel<TermEvent>,
+) -> CmdResult<String> {
+    Ok(docker_admin::image_pull(app, endpoint, reference, secret_id, on_event).await?)
 }
 
 #[tauri::command]
@@ -499,4 +565,24 @@ pub async fn docker_logs_multi(
 ) -> CmdResult<String> {
     let list = containers.into_iter().map(|c| (c.id, c.name)).collect();
     Ok(docker_admin::stream_multi_logs(app, endpoint, list, tail, timestamps, follow, on_event).await?)
+}
+
+// ---------- session (open tabs) ----------
+
+fn session_path() -> std::path::PathBuf {
+    crate::paths::config_dir().join("session.json")
+}
+
+#[tauri::command]
+pub fn session_load() -> serde_json::Value {
+    std::fs::read(session_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+#[tauri::command]
+pub fn session_save(session: serde_json::Value) -> CmdResult<()> {
+    crate::paths::write_private(&session_path(), &serde_json::to_vec(&session)?)?;
+    Ok(())
 }

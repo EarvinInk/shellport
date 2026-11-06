@@ -243,7 +243,7 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
       {/* Header */}
       <div className="border-b border-border px-5 pb-3 pt-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
             <Box size={18} />
           </div>
           <div className="min-w-0">

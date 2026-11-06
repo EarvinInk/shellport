@@ -22,7 +22,43 @@ pub struct Client {
     app: AppHandle,
     host: String,
     port: u16,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<HostKeyDecision>>>>,
+}
+
+/// User's answer to a host key prompt.
+#[derive(serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostKeyDecision {
+    Reject,
+    /// Connect this time without touching known_hosts.
+    Once,
+    /// Save to known_hosts (replacing the old key when it changed).
+    Trust,
+}
+
+/// `[host]:port` form used by known_hosts for non-default ports.
+fn known_hosts_name(host: &str, port: u16) -> String {
+    if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{host}]:{port}")
+    }
+}
+
+/// Remove existing entries for the host via `ssh-keygen -R` (handles hashed
+/// entries and leaves a `known_hosts.old` backup).
+fn forget_known_host(host: &str, port: u16, path: &std::path::Path) -> Result<()> {
+    let out = std::process::Command::new("ssh-keygen")
+        .arg("-R")
+        .arg(known_hosts_name(host, port))
+        .arg("-f")
+        .arg(path)
+        .output()
+        .context("running ssh-keygen -R")?;
+    if !out.status.success() {
+        bail!("ssh-keygen -R failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Clone)]
@@ -67,17 +103,28 @@ impl client::Handler for Client {
             changed_line,
         };
         self.app.emit("hostkey-prompt", prompt)?;
-        let accepted = tokio::time::timeout(Duration::from_secs(180), rx).await.ok().and_then(|r| r.ok()).unwrap_or(false);
+        let decision = tokio::time::timeout(Duration::from_secs(180), rx)
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or(HostKeyDecision::Reject);
         self.pending.lock().remove(&request_id);
-        if accepted && !changed {
+        if decision == HostKeyDecision::Trust {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
+            }
+            if changed {
+                if let Err(e) = forget_known_host(&self.host, self.port, &path) {
+                    log::warn!("could not remove old host key: {e:#}");
+                    let _ = self.app.emit("app-error", format!("Could not remove the old host key: {e:#}"));
+                    return Ok(false);
+                }
             }
             if let Err(e) = keys::known_hosts::learn_known_hosts_path(&self.host, self.port, &pk, &path) {
                 log::warn!("could not write known_hosts: {e}");
             }
         }
-        Ok(accepted)
+        Ok(decision != HostKeyDecision::Reject)
     }
 }
 
@@ -166,33 +213,104 @@ fn resolve_creds(state: &AppState, host: &Host) -> Result<Creds> {
     })
 }
 
-async fn authenticate(handle: &mut Handle<Client>, user: &str, creds: Creds) -> Result<()> {
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPrompt {
+    pub request_id: String,
+    pub host: String,
+    pub name: String,
+    pub instructions: String,
+    pub prompts: Vec<AuthPromptField>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct AuthPromptField {
+    pub prompt: String,
+    pub echo: bool,
+}
+
+fn is_password_prompt(p: &str) -> bool {
+    let p = p.to_lowercase();
+    (p.contains("password") || p.contains("passphrase")) && !p.contains("code") && !p.contains("otp") && !p.contains("token")
+}
+
+/// Ask the UI to answer keyboard-interactive prompts (OTP, 2FA codes, …).
+async fn ask_user(app: &AppHandle, host: &str, name: String, instructions: String, prompts: &[russh::client::Prompt]) -> Result<Vec<String>> {
+    let state = app.state::<AppState>();
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = oneshot::channel();
+    state.auth_pending.lock().insert(request_id.clone(), tx);
+    app.emit(
+        "auth-prompt",
+        AuthPrompt {
+            request_id: request_id.clone(),
+            host: host.to_string(),
+            name,
+            instructions,
+            prompts: prompts.iter().map(|p| AuthPromptField { prompt: p.prompt.clone(), echo: p.echo }).collect(),
+        },
+    )?;
+    let answer = tokio::time::timeout(Duration::from_secs(300), rx).await.ok().and_then(|r| r.ok()).flatten();
+    state.auth_pending.lock().remove(&request_id);
+    answer.ok_or_else(|| anyhow!("authentication cancelled"))
+}
+
+/// Run keyboard-interactive auth. Password-looking prompts are answered from
+/// `password` (once); anything else (verification codes) is asked of the user.
+async fn keyboard_interactive(app: &AppHandle, handle: &mut Handle<Client>, host: &str, user: &str, password: Option<&str>) -> Result<bool> {
+    let mut resp = handle.authenticate_keyboard_interactive_start(user, None).await?;
+    let mut password_used = false;
+    for _ in 0..10 {
+        match resp {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+                let answers = if prompts.is_empty() {
+                    vec![]
+                } else if let (Some(pw), false) = (password, password_used) {
+                    if prompts.iter().all(|p| is_password_prompt(&p.prompt)) {
+                        password_used = true;
+                        prompts.iter().map(|_| pw.to_string()).collect()
+                    } else {
+                        ask_user(app, host, name, instructions, &prompts).await?
+                    }
+                } else {
+                    ask_user(app, host, name, instructions, &prompts).await?
+                };
+                resp = handle.authenticate_keyboard_interactive_respond(answers).await?;
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn partial_success(r: &russh::client::AuthResult) -> bool {
+    matches!(r, russh::client::AuthResult::Failure { partial_success: true, .. })
+}
+
+async fn authenticate(app: &AppHandle, handle: &mut Handle<Client>, host: &str, user: &str, creds: Creds) -> Result<()> {
     match creds {
         Creds::Password(pw) => {
-            if handle.authenticate_password(user, pw.as_str()).await?.success() {
+            let r = handle.authenticate_password(user, pw.as_str()).await?;
+            if r.success() {
                 return Ok(());
             }
-            // Many servers only allow keyboard-interactive; answer every prompt with the password.
-            let mut resp = handle.authenticate_keyboard_interactive_start(user, None).await?;
-            for _ in 0..5 {
-                match resp {
-                    KeyboardInteractiveAuthResponse::Success => return Ok(()),
-                    KeyboardInteractiveAuthResponse::Failure { .. } => break,
-                    KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
-                        let answers = prompts.iter().map(|_| pw.to_string()).collect();
-                        resp = handle.authenticate_keyboard_interactive_respond(answers).await?;
-                    }
-                }
+            // Servers that only allow keyboard-interactive, or want a second factor.
+            if keyboard_interactive(app, handle, host, user, Some(pw.as_str())).await? {
+                return Ok(());
             }
             bail!("password authentication failed for {user}")
         }
         Creds::Key(key) => {
             let hash = handle.best_supported_rsa_hash().await?.flatten();
-            if handle.authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash)).await?.success() {
-                Ok(())
-            } else {
-                bail!("public key authentication failed for {user}")
+            let r = handle.authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash)).await?;
+            if r.success() {
+                return Ok(());
             }
+            if partial_success(&r) && keyboard_interactive(app, handle, host, user, None).await? {
+                return Ok(());
+            }
+            bail!("public key authentication failed for {user}")
         }
         Creds::Agent => {
             let mut agent = keys::agent::client::AgentClient::connect_env()
@@ -207,6 +325,12 @@ async fn authenticate(handle: &mut Handle<Client>, user: &str, creds: Creds) -> 
                 let pk = id.public_key().into_owned();
                 match handle.authenticate_publickey_with(user, pk, hash, &mut agent).await {
                     Ok(r) if r.success() => return Ok(()),
+                    Ok(r) if partial_success(&r) => {
+                        if keyboard_interactive(app, handle, host, user, None).await? {
+                            return Ok(());
+                        }
+                        break;
+                    }
                     _ => continue,
                 }
             }
@@ -260,13 +384,17 @@ pub fn connect(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future
                 (h, None)
             }
         };
-        authenticate(&mut handle, &host.username, creds).await?;
+        authenticate(&app, &mut handle, &host.name, &host.username, creds).await?;
         Ok(Arc::new(SshConn { handle, host, _jump: jump }))
     })
 }
 
 /// Get a pooled connection for the host, connecting if needed.
-pub async fn get_conn(app: AppHandle, host_id: String, depth: u8) -> Result<Arc<SshConn>> {
+pub fn get_conn(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future<Output = Result<Arc<SshConn>>> + Send>> {
+    Box::pin(get_conn_inner(app, host_id, depth))
+}
+
+async fn get_conn_inner(app: AppHandle, host_id: String, depth: u8) -> Result<Arc<SshConn>> {
     {
         let state = app.state::<AppState>();
         let conns = state.conns.lock().await;
@@ -278,8 +406,43 @@ pub async fn get_conn(app: AppHandle, host_id: String, depth: u8) -> Result<Arc<
     }
     let conn = connect(app.clone(), host_id.clone(), depth).await?;
     let state = app.state::<AppState>();
-    state.conns.lock().await.insert(host_id, conn.clone());
+    state.conns.lock().await.insert(host_id.clone(), conn.clone());
+    // Start forwards marked auto-start the first time the host connects.
+    for f in conn.host.forwards.iter().filter(|f| f.auto_start) {
+        if !forward_active(&state, &host_id, &f.id) {
+            let fut: Pin<Box<dyn Future<Output = Result<String>> + Send>> = Box::pin(start_forward(app.clone(), host_id.clone(), f.clone()));
+            let app2 = app.clone();
+            let name = format!("{}:{}", conn.host.name, f.local_port);
+            tokio::spawn(async move {
+                if let Err(e) = fut.await {
+                    let _ = app2.emit("app-error", format!("Auto-start forward {name} failed: {e:#}"));
+                }
+            });
+        }
+    }
     Ok(conn)
+}
+
+pub fn forward_task_id(host_id: &str, forward_id: &str) -> String {
+    format!("fwd:{host_id}:{forward_id}")
+}
+
+pub fn forward_active(state: &AppState, host_id: &str, forward_id: &str) -> bool {
+    state.tasks.lock().get(&forward_task_id(host_id, forward_id)).is_some_and(|h| !h.is_finished())
+}
+
+/// (host id, forward id) of every running forward.
+pub fn active_forwards(state: &AppState) -> Vec<(String, String)> {
+    state
+        .tasks
+        .lock()
+        .iter()
+        .filter(|(k, h)| k.starts_with("fwd:") && !h.is_finished())
+        .filter_map(|(k, _)| {
+            let mut parts = k.splitn(3, ':').skip(1);
+            Some((parts.next()?.to_string(), parts.next()?.to_string()))
+        })
+        .collect()
 }
 
 pub async fn disconnect(state: &AppState, host_id: &str) {
@@ -292,19 +455,35 @@ pub async fn disconnect(state: &AppState, host_id: &str) {
 
 /// Local port forward: 127.0.0.1:local_port → remote_host:remote_port via SSH.
 pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) -> Result<String> {
-    let conn = get_conn(app.clone(), host_id.clone(), 0).await?;
+    let task_id = forward_task_id(&host_id, &fwd.id);
+    if forward_active(&app.state::<AppState>(), &host_id, &fwd.id) {
+        return Ok(task_id);
+    }
+    // Connect first so auth problems surface now rather than on first use.
+    let first = get_conn(app.clone(), host_id.clone(), 0).await?;
+    drop(first);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", fwd.local_port))
         .await
-        .with_context(|| format!("binding 127.0.0.1:{}", fwd.local_port))?;
-    let task_id = format!("fwd:{host_id}:{}", fwd.id);
+        .with_context(|| format!("port {} is not available on 127.0.0.1", fwd.local_port))?;
     let rhost = fwd.remote_host.clone();
     let rport = fwd.remote_port as u32;
+    let app2 = app.clone();
+    let host2 = host_id.clone();
     let h = tokio::spawn(async move {
         loop {
             let Ok((mut sock, peer)) = listener.accept().await else { break };
-            let conn = conn.clone();
             let rhost = rhost.clone();
+            let app = app2.clone();
+            let host_id = host2.clone();
             tokio::spawn(async move {
+                // Pooled: reconnects transparently if the SSH link dropped.
+                let conn = match get_conn(app.clone(), host_id, 0).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::warn!("forward reconnect failed: {e:#}");
+                        return;
+                    }
+                };
                 let ch = match conn
                     .handle
                     .channel_open_direct_tcpip(rhost, rport, peer.ip().to_string(), peer.port() as u32)
@@ -322,5 +501,42 @@ pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) ->
         }
     });
     app.state::<AppState>().add_task(task_id.clone(), h.abort_handle());
+    let _ = app.emit("forwards-changed", ());
     Ok(task_id)
+}
+
+pub fn stop_forward(app: &AppHandle, host_id: &str, forward_id: &str) -> bool {
+    let stopped = app.state::<AppState>().cancel_task(&forward_task_id(host_id, forward_id));
+    let _ = app.emit("forwards-changed", ());
+    stopped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forget_known_host_removes_only_that_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let key = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+        std::fs::write(
+            &path,
+            format!("# comment\n[127.0.0.1]:2222 ssh-ed25519 {key}\nexample.com ssh-ed25519 {key}\n"),
+        )
+        .unwrap();
+        forget_known_host("127.0.0.1", 2222, &path).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(!after.contains("[127.0.0.1]:2222"), "{after}");
+        assert!(after.contains("example.com"));
+        assert!(dir.path().join("known_hosts.old").exists());
+    }
+
+    #[test]
+    fn password_prompt_detection() {
+        assert!(is_password_prompt("Password: "));
+        assert!(is_password_prompt("test@host's password:"));
+        assert!(!is_password_prompt("Verification code: "));
+        assert!(!is_password_prompt("One-time password (OTP): "));
+    }
 }

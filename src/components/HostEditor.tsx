@@ -23,7 +23,7 @@ const blank = (): Host => ({
   startupCommand: null,
 });
 
-const COLORS = ["", "#14b8a6", "#3b82f6", "#a855f7", "#f43f5e", "#f59e0b", "#22c55e"];
+const COLORS = ["", "#8b5cf6", "#3b82f6", "#14b8a6", "#f43f5e", "#f59e0b", "#22c55e"];
 
 export function HostEditor() {
   const { hostEditor, setHostEditor, hosts, refreshHosts, secrets, vault, setUnlockPrompt, toast, error, refreshSecrets } = useApp();
@@ -328,17 +328,21 @@ export function HostEditor() {
             <div className="text-sm text-fg-subtle">None. Forwards map 127.0.0.1:local on this machine to a host:port reachable from the server.</div>
           ) : (
             <div className="space-y-2">
-              <div className="grid grid-cols-[7rem_1fr_7rem_2rem] gap-2 text-xs text-fg-subtle">
+              <div className="grid grid-cols-[7rem_1fr_7rem_5rem_2rem] gap-2 text-xs text-fg-subtle">
                 <span>Local port</span>
                 <span>Remote host</span>
                 <span>Remote port</span>
+                <span>Auto-start</span>
                 <span />
               </div>
               {h.forwards.map((f, i) => (
-                <div key={i} className="grid grid-cols-[7rem_1fr_7rem_2rem] items-center gap-2">
+                <div key={i} className="grid grid-cols-[7rem_1fr_7rem_5rem_2rem] items-center gap-2">
                   <Input type="number" value={f.localPort} onChange={(e) => updateFwd(i, { localPort: Number(e.target.value) })} />
                   <Input value={f.remoteHost} onChange={(e) => updateFwd(i, { remoteHost: e.target.value })} />
                   <Input type="number" value={f.remotePort} onChange={(e) => updateFwd(i, { remotePort: Number(e.target.value) })} />
+                  <label className="flex h-9 items-center justify-center">
+                    <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={f.autoStart} onChange={(e) => updateFwd(i, { autoStart: e.target.checked })} />
+                  </label>
                   <IconButton title="Remove" onClick={() => set("forwards", h.forwards.filter((_, j) => j !== i))}>
                     <Trash2 size={14} />
                   </IconButton>

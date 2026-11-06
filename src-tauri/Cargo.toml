@@ -38,3 +38,14 @@ log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
+
+# Keep debug builds small: line tables for our crate, no debug info for deps.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+strip = true
+lto = "thin"

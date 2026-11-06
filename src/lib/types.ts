@@ -124,6 +124,15 @@ export interface Settings {
   autoLockMinutes: number;
   localShell: string;
   dockerLogTail: number;
+  restoreTabs: boolean;
+}
+
+export interface AuthPrompt {
+  requestId: string;
+  host: string;
+  name: string;
+  instructions: string;
+  prompts: { prompt: string; echo: boolean }[];
 }
 
 export interface HostKeyPrompt {
