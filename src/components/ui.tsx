@@ -14,7 +14,7 @@ export function Button({
     <button
       {...props}
       className={clsx(
-        "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none",
+        "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none",
         size === "sm" ? "h-7 px-2 text-xs" : "h-8 px-3 text-sm",
         variant === "primary" && "bg-accent text-white hover:bg-accent-strong",
         variant === "subtle" && "bg-surface-3 text-fg hover:bg-surface-4",
