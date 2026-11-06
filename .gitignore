@@ -3,3 +3,5 @@ dist
 src-tauri/target
 src-tauri/gen
 *.log
+dev/build-release.log
+packages
