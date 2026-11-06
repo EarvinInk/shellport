@@ -9,6 +9,7 @@ export type Tab =
   | { id: string; kind: "docker"; title: string; endpoint: string }
   | { id: string; kind: "logs"; title: string; endpoint: string; containerId: string }
   | { id: string; kind: "exec"; title: string; endpoint: string; containerId: string }
+  | { id: string; kind: "mlogs"; title: string; endpoint: string; containers: { id: string; name: string }[] }
   | { id: string; kind: "vault"; title: string }
   | { id: string; kind: "settings"; title: string };
 

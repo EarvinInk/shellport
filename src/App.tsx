@@ -10,7 +10,7 @@ import { TerminalView } from "./components/TerminalView";
 import { Empty } from "./components/ui";
 import { api } from "./lib/ipc";
 import { useApp, type Tab } from "./store";
-import { DockerView, ExecView, LogsView } from "./views/DockerView";
+import { DockerView, ExecView, LogsView, MultiLogsView } from "./views/DockerView";
 import { SettingsView } from "./views/SettingsView";
 import { SftpView } from "./views/SftpView";
 import { VaultView } from "./views/VaultView";
@@ -27,6 +27,7 @@ function TabIcon({ t }: { t: Tab }) {
     case "docker":
     case "logs":
     case "exec":
+    case "mlogs":
       return <Box size={s} />;
     case "vault":
       return <ShieldCheck size={s} />;
@@ -50,6 +51,8 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
       return <LogsView endpoint={t.endpoint} containerId={t.containerId} active={active} />;
     case "exec":
       return <ExecView endpoint={t.endpoint} containerId={t.containerId} active={active} onTitle={() => {}} />;
+    case "mlogs":
+      return <MultiLogsView endpoint={t.endpoint} containers={t.containers} active={active} />;
     case "vault":
       return <VaultView />;
     case "settings":

@@ -1,5 +1,6 @@
 mod commands;
 mod docker;
+mod docker_admin;
 mod error;
 mod paths;
 mod sftp;
@@ -99,6 +100,20 @@ pub fn run() {
             commands::docker_logs,
             commands::docker_exec,
             commands::docker_reset,
+            commands::docker_disk_usage,
+            commands::docker_prune,
+            commands::docker_volumes,
+            commands::docker_volume_create,
+            commands::docker_volume_remove,
+            commands::docker_volume_inspect,
+            commands::docker_networks,
+            commands::docker_network_create,
+            commands::docker_network_remove,
+            commands::docker_network_inspect,
+            commands::docker_image_remove,
+            commands::docker_image_pull,
+            commands::docker_project_action,
+            commands::docker_logs_multi,
             commands::settings_get,
             commands::settings_save,
         ])

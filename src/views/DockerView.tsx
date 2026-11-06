@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Download,
   FileText,
   Info,
   Layers,
@@ -25,6 +26,11 @@ import { Badge, Button, Checkbox, Empty, IconButton, Input, Modal } from "../com
 import { api, errMsg, formatBytes } from "../lib/ipc";
 import type { ContainerInfo, DockerAction, EndpointInfo, ImageInfo } from "../lib/types";
 import { useApp } from "../store";
+import { MultiLogsView, NetworksPanel, PullDialog, SystemPanel, VolumesPanel } from "./DockerAdmin";
+
+export { MultiLogsView };
+
+type DockerTab = "containers" | "images" | "volumes" | "networks" | "system";
 
 type Tone = "ok" | "warn" | "bad" | "neutral";
 
@@ -130,7 +136,10 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
   const [info, setInfo] = useState<EndpointInfo | null>(null);
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [images, setImages] = useState<ImageInfo[]>([]);
-  const [tab, setTab] = useState<"containers" | "images">("containers");
+  const [tab, setTab] = useState<DockerTab>("containers");
+  const [pulling, setPulling] = useState(false);
+  const [rmImage, setRmImage] = useState<ImageInfo | null>(null);
+  const [projectBusy, setProjectBusy] = useState<Record<string, string>>({});
   const [all, setAll] = useState(true);
   const [auto, setAuto] = useState(true);
   const [q, setQ] = useState("");
@@ -148,7 +157,7 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
     try {
       if (!info) setInfo(await api.dockerInfo(endpoint));
       if (tab === "containers") setContainers(await api.dockerList(endpoint, all));
-      else setImages(await api.dockerImages(endpoint));
+      else if (tab === "images") setImages(await api.dockerImages(endpoint));
       setErr(null);
       setLoaded(true);
     } catch (e) {
@@ -178,6 +187,31 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
       error(e);
     } finally {
       setBusy(({ [c.id]: _, ...rest }) => rest);
+    }
+  };
+
+  const projectAct = async (project: string, a: DockerAction) => {
+    setProjectBusy((b) => ({ ...b, [project]: a }));
+    try {
+      const n = await api.dockerProjectAction(endpoint, project, a);
+      toast(`${project}: ${a} ${n} container${n === 1 ? "" : "s"}`, "success");
+      await refresh();
+    } catch (e) {
+      error(e);
+    } finally {
+      setProjectBusy(({ [project]: _, ...rest }) => rest);
+    }
+  };
+
+  const removeImage = async (img: ImageInfo, force: boolean) => {
+    const ref = img.tags.find((t) => t !== "<none>:<none>") ?? img.id;
+    try {
+      await api.dockerImageRemove(endpoint, ref, force);
+      toast(`Removed ${ref}`, "success");
+      setRmImage(null);
+      await refresh();
+    } catch (e) {
+      error(e);
     }
   };
 
@@ -231,7 +265,7 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
           </div>
           <div className="flex-1" />
           <div className="flex rounded-lg bg-surface-2 p-0.5 text-sm">
-            {(["containers", "images"] as const).map((t) => (
+            {(["containers", "images", "volumes", "networks", "system"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -248,9 +282,26 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
         <div className="mt-3 flex items-center gap-4">
           <div className="relative w-80">
             <Search size={14} className="absolute left-3 top-2.5 text-fg-subtle" />
-            <Input className="pl-8" placeholder={tab === "containers" ? "Filter by name, image or project" : "Filter images"} value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input className="pl-8" placeholder={tab === "containers" ? "Filter by name, image or project" : `Filter ${tab}`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className="flex-1" />
+          {tab === "containers" && containers.some((c) => c.state === "running") && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const running = containers.filter((c) => c.state === "running").map((c) => ({ id: c.id, name: c.name }));
+                openTab({ kind: "mlogs", title: `logs · all running`, endpoint, containers: running });
+              }}
+            >
+              <FileText size={13} /> Logs of all running
+            </Button>
+          )}
+          {tab === "images" && (
+            <Button size="sm" onClick={() => setPulling(true)}>
+              <Download size={13} /> Pull image
+            </Button>
+          )}
           {tab === "containers" && <Checkbox label="Show stopped" checked={all} onChange={setAll} />}
           <Checkbox label="Auto refresh" checked={auto} onChange={setAuto} />
         </div>
@@ -272,6 +323,12 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
               Retry
             </Button>
           </Empty>
+        ) : tab === "volumes" ? (
+          <VolumesPanel endpoint={endpoint} active={active} filter={q} />
+        ) : tab === "networks" ? (
+          <NetworksPanel endpoint={endpoint} active={active} filter={q} />
+        ) : tab === "system" ? (
+          <SystemPanel endpoint={endpoint} active={active} />
         ) : tab === "containers" ? (
           grouped.length === 0 ? (
             <Empty icon={loading ? <Loader2 size={28} className="animate-spin" /> : <Box size={32} />} title={loading ? "Loading containers…" : q ? "No matches" : "No containers"} />
@@ -307,8 +364,31 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
                               <Layers size={13} className="text-fg-subtle" />
                               <span className="text-[13px] font-medium">{project}</span>
                               <span className={clsx("text-xs", up === list.length ? "text-ok" : up === 0 ? "text-fg-subtle" : "text-warn")}>
-                                {up}/{list.length} running
+                                {projectBusy[project] ? `${projectBusy[project]}…` : `${up}/${list.length} running`}
                               </span>
+                              <div className="flex-1" />
+                              <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => openTab({ kind: "mlogs", title: `logs · ${project}`, endpoint, containers: list.map((c) => ({ id: c.id, name: c.name })) }, { unique: true })}
+                                >
+                                  <FileText size={13} /> Logs
+                                </Button>
+                                {up < list.length && (
+                                  <IconButton title="Start all" disabled={!!projectBusy[project]} onClick={() => projectAct(project, "start")}>
+                                    <Play size={14} className="text-ok" />
+                                  </IconButton>
+                                )}
+                                {up > 0 && (
+                                  <IconButton title="Stop all" disabled={!!projectBusy[project]} onClick={() => projectAct(project, "stop")}>
+                                    <Square size={14} />
+                                  </IconButton>
+                                )}
+                                <IconButton title="Restart all" disabled={!!projectBusy[project]} onClick={() => projectAct(project, "restart")}>
+                                  <RotateCw size={14} />
+                                </IconButton>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -351,13 +431,15 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
               <col className="w-36" />
               <col className="w-28" />
               <col className="w-32" />
+              <col className="w-20" />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface-0 text-left text-[11px] uppercase tracking-wider text-fg-subtle shadow-[0_1px_0_var(--color-border)]">
               <tr>
                 <th className="py-2.5 pl-5 font-medium">Repository : tag</th>
                 <th className="px-3 font-medium">Image ID</th>
                 <th className="px-3 text-right font-medium">Size</th>
-                <th className="px-5 text-right font-medium">Created</th>
+                <th className="px-3 text-right font-medium">Created</th>
+                <th className="pr-5 text-right font-medium" />
               </tr>
             </thead>
             <tbody>
@@ -380,7 +462,14 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
                   </td>
                   <td className="px-3 font-mono text-xs text-fg-muted">{i.id.replace("sha256:", "").slice(0, 12)}</td>
                   <td className="px-3 text-right text-fg-muted">{i.size ? formatBytes(i.size) : "—"}</td>
-                  <td className="px-5 text-right text-fg-muted">{i.created ? new Date(i.created * 1000).toLocaleDateString() : "—"}</td>
+                  <td className="px-3 text-right text-fg-muted">{i.created ? new Date(i.created * 1000).toLocaleDateString() : "—"}</td>
+                  <td className="pr-5">
+                    <div className="flex justify-end">
+                      <IconButton title="Remove image" onClick={() => setRmImage(i)}>
+                        <Trash2 size={14} className="text-danger" />
+                      </IconButton>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -388,6 +477,32 @@ export function DockerView({ endpoint, active }: { endpoint: string; active: boo
         )}
       </div>
 
+      {pulling && <PullDialog endpoint={endpoint} onClose={() => setPulling(false)} onDone={refresh} />}
+      {rmImage && (
+        <Modal
+          title="Remove image"
+          onClose={() => setRmImage(null)}
+          width="max-w-md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setRmImage(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={() => removeImage(rmImage, true)}>
+                Force remove
+              </Button>
+              <Button variant="danger" onClick={() => removeImage(rmImage, false)}>
+                <Trash2 size={14} /> Remove
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm leading-relaxed">
+            Remove <b className="break-all">{rmImage.tags.filter((t) => t !== "<none>:<none>").join(", ") || rmImage.id.replace("sha256:", "").slice(0, 12)}</b>? Force also removes it
+            when stopped containers still reference it.
+          </p>
+        </Modal>
+      )}
       {inspect && (
         <Modal title={`Inspect · ${inspect.name}`} onClose={() => setInspect(null)} width="max-w-4xl">
           <pre className="whitespace-pre-wrap break-all rounded-lg bg-surface-1 p-4 font-mono text-xs leading-relaxed">{JSON.stringify(inspect.json, null, 2)}</pre>

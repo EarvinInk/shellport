@@ -409,3 +409,94 @@ pub fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResul
     *state.settings.lock() = settings.clone();
     Ok(settings)
 }
+
+// ---------- docker administration ----------
+
+use crate::docker_admin::{self, NetworkInfo, PruneOptions, PruneResult, PruneTarget, UsageRow, VolumeInfo};
+
+#[tauri::command]
+pub async fn docker_disk_usage(app: AppHandle, endpoint: String) -> CmdResult<Vec<UsageRow>> {
+    Ok(docker::backend(&app, &endpoint).await?.disk_usage().await?)
+}
+
+#[tauri::command]
+pub async fn docker_prune(app: AppHandle, endpoint: String, target: PruneTarget, options: PruneOptions) -> CmdResult<PruneResult> {
+    Ok(docker::backend(&app, &endpoint).await?.prune(target, options).await?)
+}
+
+#[tauri::command]
+pub async fn docker_volumes(app: AppHandle, endpoint: String) -> CmdResult<Vec<VolumeInfo>> {
+    Ok(docker::backend(&app, &endpoint).await?.volumes().await?)
+}
+
+#[tauri::command]
+pub async fn docker_volume_create(app: AppHandle, endpoint: String, name: String) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint).await?.volume_create(&name).await?)
+}
+
+#[tauri::command]
+pub async fn docker_volume_remove(app: AppHandle, endpoint: String, name: String, force: bool) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint).await?.volume_remove(&name, force).await?)
+}
+
+#[tauri::command]
+pub async fn docker_volume_inspect(app: AppHandle, endpoint: String, name: String) -> CmdResult<serde_json::Value> {
+    Ok(docker::backend(&app, &endpoint).await?.volume_inspect(&name).await?)
+}
+
+#[tauri::command]
+pub async fn docker_networks(app: AppHandle, endpoint: String) -> CmdResult<Vec<NetworkInfo>> {
+    Ok(docker::backend(&app, &endpoint).await?.networks().await?)
+}
+
+#[tauri::command]
+pub async fn docker_network_create(app: AppHandle, endpoint: String, name: String, internal: bool) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint).await?.network_create(&name, internal).await?)
+}
+
+#[tauri::command]
+pub async fn docker_network_remove(app: AppHandle, endpoint: String, id: String) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint).await?.network_remove(&id).await?)
+}
+
+#[tauri::command]
+pub async fn docker_network_inspect(app: AppHandle, endpoint: String, id: String) -> CmdResult<serde_json::Value> {
+    Ok(docker::backend(&app, &endpoint).await?.network_inspect(&id).await?)
+}
+
+#[tauri::command]
+pub async fn docker_image_remove(app: AppHandle, endpoint: String, reference: String, force: bool) -> CmdResult<Vec<String>> {
+    Ok(docker::backend(&app, &endpoint).await?.image_remove(&reference, force).await?)
+}
+
+#[tauri::command]
+pub async fn docker_image_pull(app: AppHandle, endpoint: String, reference: String, on_event: Channel<TermEvent>) -> CmdResult<String> {
+    Ok(docker_admin::image_pull(app, endpoint, reference, on_event).await?)
+}
+
+#[tauri::command]
+pub async fn docker_project_action(app: AppHandle, endpoint: String, project: String, action: Action) -> CmdResult<usize> {
+    let b = docker::backend(&app, &endpoint).await?;
+    Ok(docker_admin::project_action(&b, &project, action).await?)
+}
+
+#[derive(serde::Deserialize)]
+pub struct LogSource {
+    id: String,
+    name: String,
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn docker_logs_multi(
+    app: AppHandle,
+    endpoint: String,
+    containers: Vec<LogSource>,
+    tail: u32,
+    timestamps: bool,
+    follow: bool,
+    on_event: Channel<TermEvent>,
+) -> CmdResult<String> {
+    let list = containers.into_iter().map(|c| (c.id, c.name)).collect();
+    Ok(docker_admin::stream_multi_logs(app, endpoint, list, tail, timestamps, follow, on_event).await?)
+}

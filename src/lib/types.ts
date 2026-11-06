@@ -135,3 +135,50 @@ export interface HostKeyPrompt {
   changed: boolean;
   changedLine?: number | null;
 }
+
+export interface UsageRow {
+  kind: string;
+  total: number;
+  active: number;
+  size?: number | null;
+  reclaimable?: number | null;
+  sizeText?: string | null;
+  reclaimableText?: string | null;
+}
+
+export type PruneTarget = "containers" | "images" | "volumes" | "networks" | "build_cache" | "system";
+
+export interface PruneOptions {
+  all: boolean;
+  volumes: boolean;
+}
+
+export interface PruneResult {
+  removed: number;
+  reclaimed?: number | null;
+  reclaimedText?: string | null;
+  details: string[];
+}
+
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  created?: string | null;
+  project?: string | null;
+  anonymous: boolean;
+  usedBy: string[];
+}
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  subnet?: string | null;
+  gateway?: string | null;
+  internal: boolean;
+  project?: string | null;
+  builtin: boolean;
+  containers: string[];
+}

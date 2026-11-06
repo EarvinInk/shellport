@@ -163,11 +163,11 @@ pub async fn backend(app: &AppHandle, endpoint: &str) -> Result<Arc<DockerBacken
     Ok(b)
 }
 
-fn shell_quote(s: &str) -> String {
+pub(crate) fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-fn valid_ref(id: &str) -> Result<()> {
+pub(crate) fn valid_ref(id: &str) -> Result<()> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
         bail!("invalid container reference");
     }
