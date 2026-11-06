@@ -1,0 +1,28 @@
+# Disposable targets for manually testing Shellport. NOT for production.
+#   docker compose -f dev/docker-compose.test.yml up -d
+# SSH: test@127.0.0.1:2222, password "shellport-test"
+services:
+  sshd:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: shellport-sshd
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - USER_NAME=test
+      - PASSWORD_ACCESS=true
+      - USER_PASSWORD=shellport-test
+      - DOCKER_GID=${DOCKER_GID:-139}
+      - PUBLIC_KEY_FILE=/keys/test_ed25519.pub
+    volumes:
+      - ./test_ed25519.pub:/keys/test_ed25519.pub:ro
+      - ./sshd-init:/custom-cont-init.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:2222:2222"
+  logger:
+    image: alpine:3.20
+    container_name: shellport-logger
+    command:
+      - sh
+      - -c
+      - 'i=0; while true; do i=$$((i+1)); echo "$$(date -Iseconds) tick $$i"; if [ $$((i % 5)) -eq 0 ]; then echo "warning: tick $$i" >&2; fi; sleep 1; done'
