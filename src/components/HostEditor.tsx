@@ -117,7 +117,7 @@ export function HostEditor() {
     <Modal
       title={isNew ? "New host" : `Edit ${hostEditor.name}`}
       onClose={() => setHostEditor(null)}
-      width="max-w-2xl"
+      width="max-w-3xl"
       footer={
         <>
           {!isNew &&
@@ -140,179 +140,226 @@ export function HostEditor() {
         </>
       }
     >
-      <div className="grid grid-cols-6 gap-3">
-        <Field label="Name" className="col-span-3">
-          <Input value={h.name} onChange={(e) => set("name", e.target.value)} placeholder="prod-web-1" autoFocus />
-        </Field>
-        <Field label="Group" className="col-span-2">
-          <Input value={h.group} onChange={(e) => set("group", e.target.value)} placeholder="Production" list="host-groups" />
-          <datalist id="host-groups">
-            {[...new Set(hosts.map((x) => x.group).filter(Boolean))].map((g) => (
-              <option key={g} value={g} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Color" className="col-span-1">
-          <div className="flex h-8 items-center gap-1">
-            {COLORS.map((c) => (
-              <button
-                key={c || "none"}
-                onClick={() => set("color", c || null)}
-                className="h-4 w-4 rounded-full border border-border cursor-pointer"
-                style={{ background: c || "transparent", outline: (h.color ?? "") === c ? "2px solid white" : undefined }}
-                title={c || "none"}
-              />
-            ))}
+      <div className="space-y-6">
+        <Section title="General">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Name">
+              <Input value={h.name} onChange={(e) => set("name", e.target.value)} placeholder="prod-web-1" autoFocus />
+            </Field>
+            <Field label="Group">
+              <Input value={h.group} onChange={(e) => set("group", e.target.value)} placeholder="Production" list="host-groups" />
+              <datalist id="host-groups">
+                {[...new Set(hosts.map((x) => x.group).filter(Boolean))].map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="Tags" hint="Comma separated">
+              <Input value={h.tags.join(", ")} onChange={(e) => set("tags", e.target.value.split(",").map((t) => t.trim()))} placeholder="web, eu-west" />
+            </Field>
+            <Field label="Color">
+              <div className="flex h-9 items-center gap-2">
+                {COLORS.map((c) => {
+                  const selected = (h.color ?? "") === c;
+                  return (
+                    <button
+                      key={c || "none"}
+                      type="button"
+                      onClick={() => set("color", c || null)}
+                      title={c || "No color"}
+                      className={
+                        "h-6 w-6 rounded-full border cursor-pointer transition " +
+                        (selected ? "border-fg ring-2 ring-fg/40 ring-offset-2 ring-offset-surface-2" : "border-border hover:scale-110")
+                      }
+                      style={{ background: c || "transparent" }}
+                    />
+                  );
+                })}
+              </div>
+            </Field>
           </div>
-        </Field>
-        <Field label="Hostname / IP" className="col-span-3">
-          <Input value={h.hostname} onChange={(e) => set("hostname", e.target.value)} placeholder="10.0.0.5" />
-        </Field>
-        <Field label="Port" className="col-span-1">
-          <Input type="number" value={h.port} onChange={(e) => set("port", Number(e.target.value) || 22)} />
-        </Field>
-        <Field label="Username" className="col-span-2">
-          <Input value={h.username} onChange={(e) => set("username", e.target.value)} placeholder="root" />
-        </Field>
+        </Section>
 
-        <Field label="Authentication" className="col-span-2">
-          <Select
-            value={h.auth.type}
-            onChange={(e) => {
-              const t = e.target.value as AuthMethod["type"];
-              if (t === "password") setAuth({ type: "password", secretId: null });
-              if (t === "vault_key") setAuth({ type: "vault_key", secretId: null });
-              if (t === "key_file") setAuth({ type: "key_file", path: "~/.ssh/id_ed25519", passphraseSecretId: null });
-              if (t === "agent") setAuth({ type: "agent" });
-            }}
-          >
-            <option value="agent">ssh-agent</option>
-            <option value="vault_key">Key from vault</option>
-            <option value="key_file">Key file on disk</option>
-            <option value="password">Password (vault)</option>
-          </Select>
-        </Field>
-        <div className="col-span-4">
-          {vaultNeeded && (
-            <div className="mt-5 flex items-center gap-2 text-sm text-warn">
-              <Lock size={14} /> Vault is locked.
-              <Button size="sm" onClick={() => setUnlockPrompt(true)}>
-                Unlock
-              </Button>
-            </div>
-          )}
-          {h.auth.type === "password" && !vaultNeeded && (
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Stored password">
-                <Select value={h.auth.secretId ?? ""} onChange={(e) => setAuth({ type: "password", secretId: e.target.value || null })}>
-                  <option value="">— none —</option>
-                  {secretsOf("password").map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
+        <Section title="Connection">
+          <div className="grid grid-cols-[1fr_7rem] gap-4">
+            <Field label="Hostname / IP">
+              <Input value={h.hostname} onChange={(e) => set("hostname", e.target.value)} placeholder="10.0.0.5 or server.example.com" />
+            </Field>
+            <Field label="Port">
+              <Input type="number" value={h.port} onChange={(e) => set("port", Number(e.target.value) || 22)} />
+            </Field>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <Field label="Username">
+              <Input value={h.username} onChange={(e) => set("username", e.target.value)} placeholder="root" />
+            </Field>
+            <Field label="Jump host (ProxyJump)">
+              <Select value={h.jumpHostId ?? ""} onChange={(e) => set("jumpHostId", e.target.value || null)}>
+                <option value="">— direct —</option>
+                {hosts
+                  .filter((x) => x.id !== h.id)
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
                     </option>
                   ))}
-                </Select>
-              </Field>
-              <Field label="…or new password">
-                <Input type="password" value={inlinePw} onChange={(e) => setInlinePw(e.target.value)} placeholder="saved to vault" />
-              </Field>
-            </div>
-          )}
-          {h.auth.type === "vault_key" && !vaultNeeded && (
-            <Field label="Private key" hint={secretsOf("private_key").length === 0 ? "Add or generate a key in the Vault first." : undefined}>
-              <Select value={h.auth.secretId ?? ""} onChange={(e) => setAuth({ type: "vault_key", secretId: e.target.value || null })}>
-                <option value="">— select key —</option>
-                {secretsOf("private_key").map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
               </Select>
             </Field>
-          )}
-          {h.auth.type === "key_file" && (
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Key path">
-                <div className="flex gap-1">
-                  <Input value={h.auth.path} onChange={(e) => h.auth.type === "key_file" && setAuth({ ...h.auth, path: e.target.value })} />
-                  <IconButton title="Browse" onClick={browseKey} className="h-8 w-8">
-                    <FolderSearch size={15} />
-                  </IconButton>
-                </div>
-              </Field>
-              <Field label="Passphrase (vault)">
-                <Select
-                  value={h.auth.passphraseSecretId ?? ""}
-                  disabled={!vault.unlocked}
-                  onChange={(e) => h.auth.type === "key_file" && setAuth({ ...h.auth, passphraseSecretId: e.target.value || null })}
-                >
-                  <option value="">— none —</option>
-                  {secretsOf("password").map((s) => (
+          </div>
+        </Section>
+
+        <Section title="Authentication">
+          <div className="space-y-4">
+            <Field label="Method">
+              <Select
+                value={h.auth.type}
+                onChange={(e) => {
+                  const t = e.target.value as AuthMethod["type"];
+                  if (t === "password") setAuth({ type: "password", secretId: null });
+                  if (t === "vault_key") setAuth({ type: "vault_key", secretId: null });
+                  if (t === "key_file") setAuth({ type: "key_file", path: "~/.ssh/id_ed25519", passphraseSecretId: null });
+                  if (t === "agent") setAuth({ type: "agent" });
+                }}
+              >
+                <option value="agent">ssh-agent</option>
+                <option value="vault_key">Private key from vault</option>
+                <option value="key_file">Private key file on disk</option>
+                <option value="password">Password (stored in vault)</option>
+              </Select>
+            </Field>
+            {vaultNeeded && (
+              <div className="flex items-center gap-3 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2.5 text-sm text-warn">
+                <Lock size={15} /> <span className="flex-1">The vault is locked. Unlock it to choose a stored secret.</span>
+                <Button size="sm" onClick={() => setUnlockPrompt(true)}>
+                  Unlock
+                </Button>
+              </div>
+            )}
+            {h.auth.type === "password" && !vaultNeeded && (
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Stored password">
+                  <Select value={h.auth.secretId ?? ""} onChange={(e) => setAuth({ type: "password", secretId: e.target.value || null })}>
+                    <option value="">— none —</option>
+                    {secretsOf("password").map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Or enter a new password" hint="Saved to the vault when you save the host">
+                  <Input type="password" value={inlinePw} onChange={(e) => setInlinePw(e.target.value)} />
+                </Field>
+              </div>
+            )}
+            {h.auth.type === "vault_key" && !vaultNeeded && (
+              <Field label="Private key" hint={secretsOf("private_key").length === 0 ? "No keys in the vault yet. Add or generate one in the Vault tab." : undefined}>
+                <Select value={h.auth.secretId ?? ""} onChange={(e) => setAuth({ type: "vault_key", secretId: e.target.value || null })}>
+                  <option value="">— select key —</option>
+                  {secretsOf("private_key").map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
                   ))}
                 </Select>
               </Field>
-            </div>
-          )}
-          {h.auth.type === "agent" && (
-            <div className="mt-6 flex items-center gap-2 text-xs text-fg-subtle">
-              <KeyRound size={13} /> Uses identities loaded in ssh-agent ($SSH_AUTH_SOCK).
-            </div>
-          )}
-        </div>
+            )}
+            {h.auth.type === "key_file" && (
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Key file path">
+                  <div className="flex gap-2">
+                    <Input value={h.auth.path} onChange={(e) => h.auth.type === "key_file" && setAuth({ ...h.auth, path: e.target.value })} />
+                    <Button type="button" onClick={browseKey} title="Browse">
+                      <FolderSearch size={15} />
+                    </Button>
+                  </div>
+                </Field>
+                <Field label="Passphrase (from vault)" hint={!vault.unlocked ? "Unlock the vault to pick one" : undefined}>
+                  <Select
+                    value={h.auth.passphraseSecretId ?? ""}
+                    disabled={!vault.unlocked}
+                    onChange={(e) => h.auth.type === "key_file" && setAuth({ ...h.auth, passphraseSecretId: e.target.value || null })}
+                  >
+                    <option value="">— none —</option>
+                    {secretsOf("password").map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+            {h.auth.type === "agent" && (
+              <div className="flex items-center gap-2 text-sm text-fg-muted">
+                <KeyRound size={14} /> Uses the identities loaded in your ssh-agent ($SSH_AUTH_SOCK).
+              </div>
+            )}
+          </div>
+        </Section>
 
-        <Field label="Jump host (ProxyJump)" className="col-span-3">
-          <Select value={h.jumpHostId ?? ""} onChange={(e) => set("jumpHostId", e.target.value || null)}>
-            <option value="">— direct —</option>
-            {hosts
-              .filter((x) => x.id !== h.id)
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <Field label="Remote Docker socket" className="col-span-3">
-          <Input value={h.dockerSocket ?? ""} onChange={(e) => set("dockerSocket", e.target.value || null)} placeholder="/var/run/docker.sock" />
-        </Field>
-        <Field label="Startup command" className="col-span-4">
-          <Input value={h.startupCommand ?? ""} onChange={(e) => set("startupCommand", e.target.value || null)} placeholder="cd /srv/app" />
-        </Field>
-        <Field label="Keepalive (s)" className="col-span-2">
-          <Input type="number" value={h.keepaliveSecs ?? 30} onChange={(e) => set("keepaliveSecs", Number(e.target.value) || null)} />
-        </Field>
-        <Field label="Tags (comma separated)" className="col-span-6">
-          <Input value={h.tags.join(", ")} onChange={(e) => set("tags", e.target.value.split(",").map((t) => t.trim()))} />
-        </Field>
+        <Section title="Advanced">
+          <div className="grid grid-cols-[1fr_8rem] gap-4">
+            <Field label="Startup command" hint="Runs after login in terminal sessions">
+              <Input value={h.startupCommand ?? ""} onChange={(e) => set("startupCommand", e.target.value || null)} placeholder="cd /srv/app" />
+            </Field>
+            <Field label="Keepalive (s)">
+              <Input type="number" value={h.keepaliveSecs ?? 30} onChange={(e) => set("keepaliveSecs", Number(e.target.value) || null)} />
+            </Field>
+          </div>
+          <Field label="Remote Docker socket" className="mt-4">
+            <Input value={h.dockerSocket ?? ""} onChange={(e) => set("dockerSocket", e.target.value || null)} placeholder="/var/run/docker.sock" />
+          </Field>
+        </Section>
 
-        <div className="col-span-6">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-medium text-fg-muted">Local port forwards (127.0.0.1:local → remote host:port)</span>
+        <Section
+          title="Port forwards"
+          action={
             <Button
               size="sm"
               variant="ghost"
               onClick={() => set("forwards", [...h.forwards, { id: "", localPort: 8080, remoteHost: "127.0.0.1", remotePort: 80, autoStart: false }])}
             >
-              <Plus size={13} /> Add
+              <Plus size={13} /> Add forward
             </Button>
-          </div>
-          {h.forwards.map((f, i) => (
-            <div key={i} className="mb-1 flex items-center gap-2">
-              <Input type="number" className="w-24" value={f.localPort} onChange={(e) => updateFwd(i, { localPort: Number(e.target.value) })} />
-              <span className="text-fg-subtle">→</span>
-              <Input className="flex-1" value={f.remoteHost} onChange={(e) => updateFwd(i, { remoteHost: e.target.value })} />
-              <span className="text-fg-subtle">:</span>
-              <Input type="number" className="w-24" value={f.remotePort} onChange={(e) => updateFwd(i, { remotePort: Number(e.target.value) })} />
-              <IconButton title="Remove" onClick={() => set("forwards", h.forwards.filter((_, j) => j !== i))}>
-                <Trash2 size={14} />
-              </IconButton>
+          }
+        >
+          {h.forwards.length === 0 ? (
+            <div className="text-sm text-fg-subtle">None. Forwards map 127.0.0.1:local on this machine to a host:port reachable from the server.</div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[7rem_1fr_7rem_2rem] gap-2 text-xs text-fg-subtle">
+                <span>Local port</span>
+                <span>Remote host</span>
+                <span>Remote port</span>
+                <span />
+              </div>
+              {h.forwards.map((f, i) => (
+                <div key={i} className="grid grid-cols-[7rem_1fr_7rem_2rem] items-center gap-2">
+                  <Input type="number" value={f.localPort} onChange={(e) => updateFwd(i, { localPort: Number(e.target.value) })} />
+                  <Input value={f.remoteHost} onChange={(e) => updateFwd(i, { remoteHost: e.target.value })} />
+                  <Input type="number" value={f.remotePort} onChange={(e) => updateFwd(i, { remotePort: Number(e.target.value) })} />
+                  <IconButton title="Remove" onClick={() => set("forwards", h.forwards.filter((_, j) => j !== i))}>
+                    <Trash2 size={14} />
+                  </IconButton>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </Section>
       </div>
     </Modal>
+  );
+}
+
+function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between border-b border-border pb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
   );
 }

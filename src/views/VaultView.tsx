@@ -353,8 +353,8 @@ function SecretEditor({ secret, onClose }: { secret: SecretMeta | "new"; onClose
         </>
       }
     >
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
           <Field label="Name">
             <Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           </Field>

@@ -15,7 +15,7 @@ export function Button({
       {...props}
       className={clsx(
         "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer select-none",
-        size === "sm" ? "h-7 px-2 text-xs" : "h-8 px-3 text-sm",
+        size === "sm" ? "h-7 px-2.5 text-xs" : "h-9 px-3.5 text-sm",
         variant === "primary" && "bg-accent text-white hover:bg-accent-strong",
         variant === "subtle" && "bg-surface-3 text-fg hover:bg-surface-4",
         variant === "ghost" && "text-fg-muted hover:text-fg hover:bg-surface-3",
@@ -45,7 +45,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
     <input
       {...props}
       className={clsx(
-        "h-8 w-full rounded-md border border-border bg-surface-1 px-2.5 text-sm text-fg placeholder:text-fg-subtle outline-none focus:border-accent",
+        "h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-fg placeholder:text-fg-subtle outline-none focus:border-accent",
         className,
       )}
     />
@@ -57,7 +57,7 @@ export function TextArea({ className, ...props }: React.TextareaHTMLAttributes<H
     <textarea
       {...props}
       className={clsx(
-        "w-full rounded-md border border-border bg-surface-1 px-2.5 py-2 text-sm text-fg font-mono placeholder:text-fg-subtle outline-none focus:border-accent",
+        "w-full rounded-md border border-border bg-surface-1 px-3 py-2.5 text-sm text-fg font-mono placeholder:text-fg-subtle outline-none focus:border-accent",
         className,
       )}
     />
@@ -69,7 +69,7 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
     <select
       {...props}
       className={clsx(
-        "h-8 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-fg outline-none focus:border-accent",
+        "h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-fg outline-none focus:border-accent",
         className,
       )}
     >
@@ -80,7 +80,7 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
 
 export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <label className={clsx("flex flex-col gap-1", className)}>
+    <label className={clsx("flex flex-col gap-1.5", className)}>
       <span className="text-xs font-medium text-fg-muted">{label}</span>
       {children}
       {hint && <span className="text-xs text-fg-subtle">{hint}</span>}
@@ -102,7 +102,7 @@ export function Modal({
   onClose,
   children,
   footer,
-  width = "max-w-lg",
+  width = "max-w-xl",
 }: {
   title: string;
   onClose: () => void;
@@ -118,17 +118,17 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
       <div
-        className={clsx("flex max-h-[90vh] w-full flex-col rounded-xl border border-border bg-surface-2 shadow-2xl", width)}
+        className={clsx("flex max-h-[88vh] w-full flex-col rounded-xl border border-border bg-surface-2 shadow-2xl", width)}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="text-base font-semibold">{title}</h2>
           <IconButton title="Close" onClick={onClose}>
             <X size={16} />
           </IconButton>
         </div>
-        <div className="overflow-y-auto p-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-border px-4 py-3">{footer}</div>}
+        <div className="overflow-y-auto px-6 py-5">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">{footer}</div>}
       </div>
     </div>
   );
