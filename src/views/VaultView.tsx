@@ -310,7 +310,7 @@ function SecretEditor({ secret, onClose }: { secret: SecretMeta | "new"; onClose
   };
 
   const loadFile = async () => {
-    const path = await open({ title: "Import private key", defaultPath: "~/.ssh" });
+    const path = await open({ title: "Import private key", defaultPath: `${await api.localHome()}/.ssh` });
     if (typeof path !== "string") return;
     try {
       setF({ ...f, value: await api.localReadText(path), name: f.name || path.split("/").pop() || "" });

@@ -101,7 +101,7 @@ export function HostEditor() {
   };
 
   const browseKey = async () => {
-    const f = await openDialog({ title: "Select private key", defaultPath: "~/.ssh", multiple: false, directory: false });
+    const f = await openDialog({ title: "Select private key", defaultPath: `${await api.localHome()}/.ssh`, multiple: false, directory: false });
     if (typeof f === "string") setAuth({ type: "key_file", path: f, passphraseSecretId: h.auth.type === "key_file" ? h.auth.passphraseSecretId : null });
   };
 
