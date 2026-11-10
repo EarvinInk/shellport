@@ -183,6 +183,8 @@ pnpm tauri build --bundles deb,appimage          # → src-tauri/target/release/
 
 Run the tests with `cd src-tauri && cargo test`. A full release build needs about 5 GB of free disk space.
 
+Official downloads are built by GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml)) on Ubuntu 22.04, so they run on that release and newer. Packages you build yourself only run on your distribution version or newer. To publish a release, bump the version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json`, then push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The workflow creates a draft release with both packages attached for you to review and publish.
+
 <details>
 <summary>Test servers and project layout</summary>
 
