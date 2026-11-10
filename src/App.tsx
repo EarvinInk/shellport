@@ -1,8 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
-import { Box, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
+import { Box, Database, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPromptDialog, HostKeyDialog, Toasts, UnlockDialog, useAppErrors } from "./components/Dialogs";
+import { DatabasesSidebar } from "./components/DatabasesSidebar";
+import { DbEditor } from "./components/DbEditor";
 import { ForwardsDialog } from "./components/ForwardsDialog";
 import { HostEditor } from "./components/HostEditor";
 import { DockerSidebar, HostsSidebar } from "./components/HostsSidebar";
@@ -11,6 +13,7 @@ import { TerminalView } from "./components/TerminalView";
 import { Empty } from "./components/ui";
 import { api } from "./lib/ipc";
 import { useApp, type Tab } from "./store";
+import { DbView } from "./views/DbView";
 import { DockerView, ExecView, LogsView, MultiLogsView } from "./views/DockerView";
 import { SettingsView } from "./views/SettingsView";
 import { SftpView } from "./views/SftpView";
@@ -30,6 +33,8 @@ function TabIcon({ t }: { t: Tab }) {
     case "exec":
     case "mlogs":
       return <Box size={s} />;
+    case "db":
+      return <Database size={s} />;
     case "vault":
       return <ShieldCheck size={s} />;
     case "settings":
@@ -54,6 +59,8 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
       return <ExecView endpoint={t.endpoint} containerId={t.containerId} active={active} onTitle={() => {}} />;
     case "mlogs":
       return <MultiLogsView endpoint={t.endpoint} containers={t.containers} active={active} />;
+    case "db":
+      return <DbView dbId={t.dbId} active={active} />;
     case "vault":
       return <VaultView />;
     case "settings":
@@ -63,10 +70,10 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
 
 export default function App() {
   useAppErrors();
-  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, loadSettings, toast } = useApp();
+  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, refreshDbs, loadSettings, toast } = useApp();
 
   useEffect(() => {
-    Promise.all([loadSettings(), refreshHosts()]).then(() => useApp.getState().restoreSession());
+    Promise.all([loadSettings(), refreshHosts(), refreshDbs()]).then(() => useApp.getState().restoreSession());
     useApp.getState().refreshForwards();
     refreshVault().then(async () => {
       const v = useApp.getState().vault;
@@ -137,6 +144,9 @@ export default function App() {
         <RailButton title="Hosts" active={!sidebarCollapsed && sidebar === "hosts"} onClick={() => (!sidebarCollapsed && sidebar === "hosts" ? toggleSidebar() : setSidebar("hosts"))}>
           <Server size={18} />
         </RailButton>
+        <RailButton title="Databases" active={!sidebarCollapsed && sidebar === "databases"} onClick={() => (!sidebarCollapsed && sidebar === "databases" ? toggleSidebar() : setSidebar("databases"))}>
+          <Database size={18} />
+        </RailButton>
         <RailButton title="Docker" active={!sidebarCollapsed && sidebar === "docker"} onClick={() => (!sidebarCollapsed && sidebar === "docker" ? toggleSidebar() : setSidebar("docker"))}>
           <Box size={18} />
         </RailButton>
@@ -164,7 +174,7 @@ export default function App() {
 
       {/* Sidebar */}
       {!sidebarCollapsed && (
-        <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : <DockerSidebar />}</aside>
+        <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : sidebar === "databases" ? <DatabasesSidebar /> : <DockerSidebar />}</aside>
       )}
 
       {/* Workspace */}
@@ -192,7 +202,9 @@ export default function App() {
                 t.id === activeTab ? "border-border bg-surface-0 text-fg" : "border-transparent text-fg-muted hover:bg-surface-2",
               )}
             >
-              <TabIcon t={t} />
+              <span className="flex shrink-0">
+                <TabIcon t={t} />
+              </span>
               <span className="truncate">{t.title}</span>
               <button
                 className="rounded p-0.5 opacity-50 hover:bg-surface-4 hover:opacity-100 cursor-pointer"
@@ -227,6 +239,7 @@ export default function App() {
       </main>
 
       <HostEditor />
+      <DbEditor />
       <ImportDialog />
       <HostKeyDialog />
       <AuthPromptDialog />

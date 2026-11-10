@@ -94,6 +94,8 @@ export function HostEditor() {
     try {
       await api.hostDelete(h.id);
       await refreshHosts();
+      // Database tunnels through this host fall back to direct connections.
+      await useApp.getState().refreshDbs();
       setHostEditor(null);
     } catch (e) {
       error(e);

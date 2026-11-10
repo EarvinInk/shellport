@@ -16,6 +16,7 @@ It's free, open source (MIT) and private by design: no accounts, no telemetry, n
 - Reach private machines through **jump hosts** and forward ports with **`ssh -L`** tunnels.
 - **Upload and download** whole folders with progress and cancel, or drag files in from your desktop.
 - Manage **Docker** containers, images, volumes and networks, locally or on any SSH host.
+- Browse and query **PostgreSQL** databases, directly or through an SSH host.
 - Keep **passwords, private keys and API tokens** in an encrypted vault.
 
 ## Where to go next

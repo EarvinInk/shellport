@@ -1,4 +1,5 @@
 mod commands;
+mod db;
 mod docker;
 mod docker_admin;
 mod error;
@@ -125,6 +126,16 @@ pub fn run() {
             commands::settings_save,
             commands::session_load,
             commands::session_save,
+            commands::db_engines,
+            commands::dbs_list,
+            commands::db_save,
+            commands::db_delete,
+            commands::db_test,
+            commands::db_connect,
+            commands::db_disconnect,
+            commands::db_children,
+            commands::db_query,
+            commands::db_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shellport");

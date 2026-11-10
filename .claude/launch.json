@@ -4,8 +4,22 @@
     {
       "name": "website",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "website", "dev", "--port", "4321"],
+      "runtimeArgs": [
+        "--dir",
+        "website",
+        "dev",
+        "--port",
+        "4321"
+      ],
       "port": 4321
+    },
+    {
+      "name": "app-ui",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev"
+      ],
+      "port": 1420
     }
   ]
 }

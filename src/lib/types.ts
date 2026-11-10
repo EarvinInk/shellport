@@ -191,3 +191,73 @@ export interface NetworkInfo {
   builtin: boolean;
   containers: string[];
 }
+
+// ---------- databases ----------
+
+/** Must match `db::DbEngine` in the backend. */
+export type DbEngine = "postgres";
+
+export type SslMode = "disable" | "prefer" | "require" | "verify-full";
+
+export interface DbProfile {
+  id: string;
+  name: string;
+  group: string;
+  engine: DbEngine;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  passwordSecretId?: string | null;
+  viaHostId?: string | null;
+  sslMode: SslMode;
+  options: Record<string, string>;
+  color?: string | null;
+  tags: string[];
+}
+
+export interface EngineInfo {
+  engine: DbEngine;
+  label: string;
+  defaultPort: number;
+  capabilities: { cancel: boolean; transactions: boolean; tls: boolean };
+}
+
+export interface SchemaNode {
+  name: string;
+  path: string[];
+  kind: string;
+  detail?: string | null;
+  hasChildren: boolean;
+  previewSql?: string | null;
+  insertText?: string | null;
+  system: boolean;
+}
+
+export type Cell =
+  | { t: "null" }
+  | { t: "bool"; v: boolean }
+  | { t: "int"; v: number }
+  | { t: "float"; v: number }
+  | { t: "text"; v: string }
+  | { t: "json"; v: string }
+  | { t: "bytes"; v: string };
+
+export interface StatementResult {
+  columns: { name: string; typeName: string }[];
+  rows: Cell[][];
+  rowsAffected?: number | null;
+  truncated: boolean;
+}
+
+export interface QueryOutput {
+  results: StatementResult[];
+  notices: string[];
+  elapsedMs: number;
+}
+
+export interface DbConnected {
+  sessionId: string;
+  serverVersion: string;
+  engine: DbEngine;
+}

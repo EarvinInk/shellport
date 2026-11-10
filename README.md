@@ -65,6 +65,14 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - **Images, volumes and networks**: pull and remove images (including from private registries); inspect and remove volumes and networks.
 - **Disk usage and cleanup** (prune) in the System tab.
 
+### Databases
+
+- Built-in **PostgreSQL client**: saved connections, a lazy **schema browser** (schemas, tables, views, functions, columns with types and primary keys), a **SQL editor** and a **result grid**.
+- Connect **directly or through any saved SSH host**. The tunnel is private to Shellport (an ephemeral port on 127.0.0.1) and honours jump hosts.
+- Passwords live in the **vault**; TLS modes from *disable* to *verify-full*.
+- Run whole scripts or just the selection (Ctrl+Enter), **cancel** long queries, cap rows per statement, see server notices, copy cells or results as TSV.
+- More engines (MySQL, SQLite, …) can be added as drivers; see *Adding a database engine* below.
+
 ### Encrypted vault
 
 <img src="docs/screenshots/vault.png" alt="The vault holding passwords and an ed25519 private key" width="900">
@@ -130,8 +138,9 @@ To update, download the newer `.deb` and run the same command.
 3. **Connect.** Double-click a host. The first time, Shellport shows the server's fingerprint; check it and choose **Trust & connect**.
 4. **Transfer files.** Hover a host and click the **folder** icon to open SFTP. Select a file or folder and use **Upload** / **Download**, or drag files in from your desktop.
 5. **Manage containers.** Click the **cube** icon on the left, then pick **Local** or any SSH host.
-6. **Forward a port.** Hover a host, click the **⇄** icon and add a forward, e.g. local `15432` → `127.0.0.1:5432` to reach a remote database.
-7. **Make it yours.** Theme, font, cursor, auto-lock time and more are under **Settings** (gear icon).
+6. **Open a database.** Click the **cylinder** icon on the left, then **+**. Enter the database host as the SSH server sees it (often `127.0.0.1`), pick the SSH host under *SSH tunnel*, and click **Test connection**. Double-click the saved entry to browse tables and run SQL.
+7. **Forward a port.** Hover a host, click the **⇄** icon and add a forward, e.g. local `15432` → `127.0.0.1:5432` to reach a remote database.
+8. **Make it yours.** Theme, font, cursor, auto-lock time and more are under **Settings** (gear icon).
 
 ## Keyboard shortcuts
 
@@ -194,12 +203,16 @@ Disposable test targets (SSH on `127.0.0.1:2222`, user `test`, password `shellpo
 ssh-keygen -t ed25519 -N "" -f dev/test_ed25519   # first time only
 docker compose -f dev/docker-compose.test.yml up -d
 cd src-tauri && cargo run --example smoke          # headless protocol smoke test
+cd src-tauri && cargo test --lib -- --ignored postgres_live   # database driver against the test Postgres
 ```
+
+The compose file also starts PostgreSQL with demo data (user, password and database `shellport` / `shellport-test` / `shellport`). It is published on `127.0.0.1:55432` for direct connections, and is reachable as host `postgres`, port `5432` through the SSH test host.
 
 ```
 src-tauri/src/
   vault/          encrypted vault + keyring integration
-  store/          hosts.json, settings.json, ~/.ssh/config parser
+  store/          hosts.json, databases.json, settings.json, ~/.ssh/config parser
+  db/             database client: engine-neutral traits, registry, drivers/
   ssh/            connections, auth, host keys, ProxyJump, port forwards
   known_hosts.rs  known_hosts verification
   term.rs         local PTY / SSH shell / docker exec sessions
@@ -210,7 +223,15 @@ src/              React UI (views/, components/, lib/ipc.ts)
 dev/              test containers and icon generator
 ```
 
-Built with [Tauri 2](https://tauri.app) (Rust) and React, using [russh](https://github.com/Eugeny/russh), [bollard](https://github.com/fussybeaver/bollard) and [xterm.js](https://xtermjs.org).
+**Adding a database engine.** Drivers never see SSH: the session layer opens the tunnel and hands them a plain local address. To add one:
+1. add a variant to `DbEngine` in `src-tauri/src/db/mod.rs`;
+2. implement `DbDriver` and `DbSession` in `src-tauri/src/db/drivers/<engine>.rs` (`postgres.rs` is the reference);
+3. map it in `src-tauri/src/db/registry.rs`;
+4. add its entry (default port, TLS modes, extra fields) to `src/lib/dbEngines.ts`.
+
+Profiles store engine-specific settings in `options`, so the store, tunnel, commands, tabs and result grid need no changes.
+
+Built with [Tauri 2](https://tauri.app) (Rust) and React, using [russh](https://github.com/Eugeny/russh), [tokio-postgres](https://github.com/sfackler/rust-postgres), [bollard](https://github.com/fussybeaver/bollard) and [xterm.js](https://xtermjs.org).
 
 </details>
 

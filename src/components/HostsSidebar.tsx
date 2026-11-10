@@ -92,7 +92,7 @@ function HostRow({ h }: { h: Host }) {
   const activeFwd = useApp((st) => st.forwards.filter((f) => f.hostId === h.id).length);
   return (
     <div
-      className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-3 cursor-pointer"
+      className="group flex select-none items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-3 cursor-pointer"
       onDoubleClick={() => openSsh(h)}
       title="Double-click to connect"
     >
@@ -161,7 +161,7 @@ export function DockerSidebar() {
 
 function EndpointRow({ name, detail, onClick }: { name: string; detail: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-3 cursor-pointer">
+    <button onClick={onClick} className="flex w-full select-none items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-3 cursor-pointer">
       <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent/15 text-accent">
         <Box size={14} />
       </div>

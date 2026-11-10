@@ -1,6 +1,7 @@
 use crate::docker::DockerBackend;
 use crate::ssh::SshConn;
-use crate::store::{hosts::HostStore, settings::Settings};
+use crate::db::session::OpenDb;
+use crate::store::{databases::DbStore, hosts::HostStore, settings::Settings};
 use crate::term::TermHandle;
 use crate::vault::Vault;
 use parking_lot::Mutex;
@@ -13,12 +14,15 @@ use tokio::task::AbortHandle;
 pub struct AppState {
     pub vault: Mutex<Vault>,
     pub hosts: Mutex<HostStore>,
+    pub dbs: Mutex<DbStore>,
     pub settings: Mutex<Settings>,
     pub settings_path: PathBuf,
     /// Live SSH connections keyed by host id; shared by terminals, SFTP, Docker.
     pub conns: tokio::sync::Mutex<HashMap<String, Arc<SshConn>>>,
     pub sftp: tokio::sync::Mutex<HashMap<String, Arc<russh_sftp::client::SftpSession>>>,
     pub dockers: tokio::sync::Mutex<HashMap<String, Arc<DockerBackend>>>,
+    /// Open database sessions keyed by session id (one per DB tab).
+    pub db_sessions: tokio::sync::Mutex<HashMap<String, OpenDb>>,
     /// Open terminal sessions (local, ssh, docker exec).
     pub terms: Mutex<HashMap<String, Arc<TermHandle>>>,
     /// Background tasks that can be cancelled (log streams, port forwards, transfers).
@@ -43,11 +47,13 @@ impl AppState {
         Ok(AppState {
             vault: Mutex::new(Vault::new(dir.join("vault.bin"))),
             hosts: Mutex::new(HostStore::load(dir.join("hosts.json"))?),
+            dbs: Mutex::new(DbStore::load(dir.join("databases.json"))?),
             settings: Mutex::new(Settings::load(&settings_path)),
             settings_path,
             conns: Default::default(),
             sftp: Default::default(),
             dockers: Default::default(),
+            db_sessions: Default::default(),
             terms: Default::default(),
             tasks: Default::default(),
             hostkey_pending: Default::default(),

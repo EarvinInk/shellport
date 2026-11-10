@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, errMsg } from "./lib/ipc";
-import type { Host, SecretMeta, Settings, VaultStatus } from "./lib/types";
+import type { DbProfile, Host, SecretMeta, Settings, VaultStatus } from "./lib/types";
 
 export type Tab =
   | { id: string; kind: "local"; title: string }
@@ -10,8 +10,11 @@ export type Tab =
   | { id: string; kind: "logs"; title: string; endpoint: string; containerId: string }
   | { id: string; kind: "exec"; title: string; endpoint: string; containerId: string }
   | { id: string; kind: "mlogs"; title: string; endpoint: string; containers: { id: string; name: string }[] }
+  | { id: string; kind: "db"; title: string; dbId: string }
   | { id: string; kind: "vault"; title: string }
   | { id: string; kind: "settings"; title: string };
+
+export type Sidebar = "hosts" | "databases" | "docker";
 
 type TabInput = Tab extends infer T ? (T extends Tab ? Omit<T, "id"> : never) : never;
 
@@ -25,11 +28,18 @@ interface AppStore {
   tabs: Tab[];
   activeTab: string | null;
   hosts: Host[];
+  dbs: DbProfile[];
+  dbEditor: DbProfile | "new" | null;
+  setDbEditor: (d: DbProfile | "new" | null) => void;
+  refreshDbs: () => Promise<void>;
+  /** Number of connected tabs per database profile id. */
+  dbLive: Record<string, number>;
+  dbLiveAdd: (id: string, delta: number) => void;
   secrets: SecretMeta[];
   vault: VaultStatus;
   settings: Settings | null;
   toasts: Toast[];
-  sidebar: "hosts" | "docker";
+  sidebar: Sidebar;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   hostEditor: Host | "new" | null;
@@ -46,7 +56,7 @@ interface AppStore {
   closeTab: (id: string) => void;
   setActive: (id: string) => void;
   renameTab: (id: string, title: string) => void;
-  setSidebar: (s: "hosts" | "docker") => void;
+  setSidebar: (s: Sidebar) => void;
   setHostEditor: (h: Host | "new" | null) => void;
   setImportOpen: (o: boolean) => void;
   setUnlockPrompt: (o: boolean) => void;
@@ -68,6 +78,25 @@ export const useApp = create<AppStore>((set, get) => ({
   tabs: [],
   activeTab: null,
   hosts: [],
+  dbs: [],
+  dbEditor: null,
+  dbLive: {},
+  dbLiveAdd: (id, delta) =>
+    set((s) => {
+      const n = Math.max(0, (s.dbLive[id] ?? 0) + delta);
+      const dbLive = { ...s.dbLive };
+      if (n) dbLive[id] = n;
+      else delete dbLive[id];
+      return { dbLive };
+    }),
+  setDbEditor: (dbEditor) => set({ dbEditor }),
+  refreshDbs: async () => {
+    try {
+      set({ dbs: await api.dbsList() });
+    } catch (e) {
+      get().error(e);
+    }
+  },
   secrets: [],
   vault: { exists: false, unlocked: false, remembered: false },
   settings: null,
@@ -97,8 +126,10 @@ export const useApp = create<AppStore>((set, get) => ({
       const sess = (await api.sessionLoad()) as { tabs?: Tab[]; activeTab?: string | null } | null;
       if (!sess?.tabs?.length) return;
       const hostIds = new Set(st.hosts.map((h) => h.id));
+      const dbIds = new Set(st.dbs.map((d) => d.id));
       const tabs = sess.tabs.filter((t) => {
         if ("hostId" in t) return hostIds.has(t.hostId);
+        if ("dbId" in t) return dbIds.has(t.dbId);
         if ("endpoint" in t) return t.endpoint === "local" || hostIds.has(t.endpoint);
         return true;
       });

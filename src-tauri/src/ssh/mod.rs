@@ -489,30 +489,17 @@ pub async fn disconnect(state: &AppState, host_id: &str) {
     }
 }
 
-/// Local port forward: 127.0.0.1:local_port → remote_host:remote_port via SSH.
-pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) -> Result<String> {
-    let task_id = forward_task_id(&host_id, &fwd.id);
-    if forward_active(&app.state::<AppState>(), &host_id, &fwd.id) {
-        return Ok(task_id);
-    }
-    // Connect first so auth problems surface now rather than on first use.
-    let first = get_conn(app.clone(), host_id.clone(), 0).await?;
-    drop(first);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", fwd.local_port))
-        .await
-        .with_context(|| format!("port {} is not available on 127.0.0.1", fwd.local_port))?;
-    let rhost = fwd.remote_host.clone();
-    let rport = fwd.remote_port as u32;
-    let app2 = app.clone();
-    let host2 = host_id.clone();
-    let h = tokio::spawn(async move {
+/// Accept loop shared by saved port forwards and ad-hoc tunnels (databases):
+/// every connection accepted on `listener` is relayed to `rhost:rport` through
+/// the host's pooled SSH connection, reconnecting transparently if it dropped.
+pub(crate) fn spawn_forward_loop(app: AppHandle, host_id: String, listener: tokio::net::TcpListener, rhost: String, rport: u16) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         loop {
             let Ok((mut sock, peer)) = listener.accept().await else { break };
             let rhost = rhost.clone();
-            let app = app2.clone();
-            let host_id = host2.clone();
+            let app = app.clone();
+            let host_id = host_id.clone();
             tokio::spawn(async move {
-                // Pooled: reconnects transparently if the SSH link dropped.
                 let conn = match get_conn(app.clone(), host_id, 0).await {
                     Ok(c) => c,
                     Err(e) => {
@@ -522,7 +509,7 @@ pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) ->
                 };
                 let ch = match conn
                     .handle
-                    .channel_open_direct_tcpip(rhost, rport, peer.ip().to_string(), peer.port() as u32)
+                    .channel_open_direct_tcpip(rhost, rport as u32, peer.ip().to_string(), peer.port() as u32)
                     .await
                 {
                     Ok(c) => c,
@@ -535,7 +522,22 @@ pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) ->
                 let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
             });
         }
-    });
+    })
+}
+
+/// Local port forward: 127.0.0.1:local_port → remote_host:remote_port via SSH.
+pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) -> Result<String> {
+    let task_id = forward_task_id(&host_id, &fwd.id);
+    if forward_active(&app.state::<AppState>(), &host_id, &fwd.id) {
+        return Ok(task_id);
+    }
+    // Connect first so auth problems surface now rather than on first use.
+    let first = get_conn(app.clone(), host_id.clone(), 0).await?;
+    drop(first);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", fwd.local_port))
+        .await
+        .with_context(|| format!("port {} is not available on 127.0.0.1", fwd.local_port))?;
+    let h = spawn_forward_loop(app.clone(), host_id.clone(), listener, fwd.remote_host.clone(), fwd.remote_port);
     app.state::<AppState>().add_task(task_id.clone(), h.abort_handle());
     let _ = app.emit("forwards-changed", ());
     Ok(task_id)

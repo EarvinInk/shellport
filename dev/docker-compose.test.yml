@@ -1,6 +1,9 @@
 # Disposable targets for manually testing Shellport. NOT for production.
 #   docker compose -f dev/docker-compose.test.yml up -d
 # SSH: test@127.0.0.1:2222, password "shellport-test"
+# Postgres: user/db "shellport", password "shellport-test"
+#   direct:        127.0.0.1:55432
+#   through SSH:   host "postgres", port 5432 (via the sshd host above)
 services:
   sshd:
     image: lscr.io/linuxserver/openssh-server:latest
@@ -19,6 +22,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:2222:2222"
+  postgres:
+    image: postgres:16-alpine
+    container_name: shellport-postgres
+    environment:
+      - POSTGRES_USER=shellport
+      - POSTGRES_PASSWORD=shellport-test
+      - POSTGRES_DB=shellport
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:55432:5432"
   logger:
     image: alpine:3.20
     container_name: shellport-logger

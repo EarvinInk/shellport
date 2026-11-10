@@ -4,6 +4,11 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 
 ## [Unreleased]
 
+### Added
+- Databases: a built-in PostgreSQL client with saved connections, a schema browser, a SQL editor (Ctrl+Enter runs the script or the selection), a result grid, query cancel, row limits and server notices.
+- Database connections can go through any saved SSH host (including jump hosts) over a private tunnel; passwords are kept in the vault.
+- Database support is driver-based, so more engines can be added without changing the rest of the app.
+
 ## [0.1.1] - 2026-11-10
 
 ### Added

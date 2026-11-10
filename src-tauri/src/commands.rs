@@ -4,6 +4,7 @@ use crate::docker::{self, Action, ContainerInfo, EndpointInfo, ImageInfo};
 use crate::error::CmdResult;
 use crate::sftp::{self, FileEntry, TransferEvent};
 use crate::state::AppState;
+use crate::store::databases::DbProfile;
 use crate::store::hosts::Host;
 use crate::store::settings::Settings;
 use crate::store::ssh_config::{self, SshConfigEntry};
@@ -188,7 +189,8 @@ pub fn host_save(state: State<'_, AppState>, host: Host) -> CmdResult<Host> {
 #[tauri::command]
 pub async fn host_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     crate::ssh::disconnect(&state, &id).await;
-    Ok(state.hosts.lock().delete(&id)?)
+    state.hosts.lock().delete(&id)?;
+    Ok(state.dbs.lock().host_deleted(&id)?)
 }
 
 /// Resolve an ssh_config path: the default `~/.ssh/config`, or a file the
@@ -286,6 +288,94 @@ pub fn task_cancel(state: State<'_, AppState>, task_id: String) -> bool {
 #[tauri::command]
 pub fn tasks_active(state: State<'_, AppState>) -> Vec<String> {
     state.tasks.lock().iter().filter(|(_, h)| !h.is_finished()).map(|(k, _)| k.clone()).collect()
+}
+
+// ---------- databases ----------
+
+#[tauri::command]
+pub fn db_engines() -> Vec<crate::db::EngineInfo> {
+    crate::db::registry::engines()
+}
+
+#[tauri::command]
+pub fn dbs_list(state: State<'_, AppState>) -> Vec<DbProfile> {
+    state.dbs.lock().list()
+}
+
+#[tauri::command]
+pub fn db_save(state: State<'_, AppState>, db: DbProfile) -> CmdResult<DbProfile> {
+    Ok(state.dbs.lock().upsert(db)?)
+}
+
+#[tauri::command]
+pub async fn db_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let open: Vec<String> = state.db_sessions.lock().await.iter().filter(|(_, o)| o.profile_id == id).map(|(k, _)| k.clone()).collect();
+    for sid in open {
+        crate::db::session::close(&state, &sid).await;
+    }
+    Ok(state.dbs.lock().delete(&id)?)
+}
+
+/// Connect with a (possibly unsaved) profile, report the server version, disconnect.
+#[tauri::command]
+pub async fn db_test(app: AppHandle, state: State<'_, AppState>, db: DbProfile) -> CmdResult<String> {
+    let sid = format!("test-{}", uuid::Uuid::new_v4());
+    let (session, tunnel) = crate::db::session::open(&app, &db, &sid).await?;
+    let version = session.server_version();
+    session.close().await;
+    if let Some(t) = tunnel {
+        state.cancel_task(&t);
+    }
+    Ok(version)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbConnected {
+    session_id: String,
+    server_version: String,
+    engine: crate::db::DbEngine,
+}
+
+#[tauri::command]
+pub async fn db_connect(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<DbConnected> {
+    let db = state.dbs.lock().get(&id)?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let (session, tunnel_task) = crate::db::session::open(&app, &db, &session_id).await?;
+    let server_version = session.server_version();
+    state
+        .db_sessions
+        .lock()
+        .await
+        .insert(session_id.clone(), crate::db::session::OpenDb { session, profile_id: id, tunnel_task });
+    Ok(DbConnected { session_id, server_version, engine: db.engine })
+}
+
+#[tauri::command]
+pub async fn db_disconnect(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
+    crate::db::session::close(&state, &session_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn db_children(state: State<'_, AppState>, session_id: String, path: Vec<String>) -> CmdResult<Vec<crate::db::SchemaNode>> {
+    let s = crate::db::session::get(&state, &session_id).await?;
+    Ok(s.children(&path).await?)
+}
+
+/// Upper bound on rows kept per statement, whatever the UI asks for.
+const DB_MAX_ROWS: usize = 50_000;
+
+#[tauri::command]
+pub async fn db_query(state: State<'_, AppState>, session_id: String, sql: String, row_limit: usize) -> CmdResult<crate::db::QueryOutput> {
+    let s = crate::db::session::get(&state, &session_id).await?;
+    Ok(s.query(&sql, row_limit.clamp(1, DB_MAX_ROWS)).await?)
+}
+
+#[tauri::command]
+pub async fn db_cancel(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
+    let s = crate::db::session::get(&state, &session_id).await?;
+    Ok(s.cancel().await?)
 }
 
 // ---------- terminals ----------

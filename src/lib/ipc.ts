@@ -1,6 +1,11 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   ContainerInfo,
+  DbConnected,
+  DbProfile,
+  EngineInfo,
+  QueryOutput,
+  SchemaNode,
   DockerAction,
   EndpointInfo,
   FileEntry,
@@ -54,6 +59,18 @@ export const api = {
   forwardStart: (hostId: string, forwardId: string) => invoke<string>("forward_start", { hostId, forwardId }),
   taskCancel: (taskId: string) => invoke<boolean>("task_cancel", { taskId }),
   tasksActive: () => invoke<string[]>("tasks_active"),
+
+  // databases
+  dbEngines: () => invoke<EngineInfo[]>("db_engines"),
+  dbsList: () => invoke<DbProfile[]>("dbs_list"),
+  dbSave: (db: DbProfile) => invoke<DbProfile>("db_save", { db }),
+  dbDelete: (id: string) => invoke<void>("db_delete", { id }),
+  dbTest: (db: DbProfile) => invoke<string>("db_test", { db }),
+  dbConnect: (id: string) => invoke<DbConnected>("db_connect", { id }),
+  dbDisconnect: (sessionId: string) => invoke<void>("db_disconnect", { sessionId }),
+  dbChildren: (sessionId: string, path: string[]) => invoke<SchemaNode[]>("db_children", { sessionId, path }),
+  dbQuery: (sessionId: string, sql: string, rowLimit: number) => invoke<QueryOutput>("db_query", { sessionId, sql, rowLimit }),
+  dbCancel: (sessionId: string) => invoke<void>("db_cancel", { sessionId }),
 
   // terminals
   termOpenLocal: (cols: number, rows: number, onEvent: Channel<TermEvent>, cwd?: string) =>
