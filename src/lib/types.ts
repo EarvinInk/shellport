@@ -55,6 +55,10 @@ export interface Host {
   forwards: PortForward[];
   keepaliveSecs?: number | null;
   startupCommand?: string | null;
+  /** What a terminal does when the connection drops. */
+  onDisconnect?: "reconnect" | "ask" | "close";
+  /** Keep each terminal's shell alive in a tmux session on the server. */
+  tmuxSession?: boolean;
 }
 
 export interface SshConfigEntry {
@@ -69,7 +73,8 @@ export interface SshConfigEntry {
 export type TermEvent =
   | { type: "data"; data: string }
   | { type: "exit"; code?: number | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "lost"; reason: string };
 
 export interface FileEntry {
   name: string;
@@ -199,6 +204,11 @@ export type DbEngine = "postgres";
 
 export type SslMode = "disable" | "prefer" | "require" | "verify-full";
 
+/** How carefully queries on a connection are treated. */
+export type DbSafety = "off" | "confirm" | "read-only";
+
+export type TxState = "idle" | "open" | "failed";
+
 export interface DbProfile {
   id: string;
   name: string;
@@ -211,6 +221,7 @@ export interface DbProfile {
   passwordSecretId?: string | null;
   viaHostId?: string | null;
   sslMode: SslMode;
+  safety: DbSafety;
   options: Record<string, string>;
   color?: string | null;
   tags: string[];
@@ -254,10 +265,43 @@ export interface QueryOutput {
   results: StatementResult[];
   notices: string[];
   elapsedMs: number;
+  tx: TxState;
 }
+
+export interface QueryRisk {
+  statement: string;
+  reason: string;
+}
+
+export type QueryOutcome = { kind: "done"; output: QueryOutput } | { kind: "needsConfirmation"; risks: QueryRisk[] };
 
 export interface DbConnected {
   sessionId: string;
   serverVersion: string;
   engine: DbEngine;
+  safety: DbSafety;
+}
+
+// ---------- backup ----------
+
+export interface BackupCounts {
+  total: number;
+  new: number;
+}
+
+export interface BackupSummary {
+  createdAt: number;
+  app: string;
+  hosts: BackupCounts;
+  databases: BackupCounts;
+  secrets?: BackupCounts | null;
+  vaultExists: boolean;
+  vaultUnlocked: boolean;
+}
+
+export interface BackupRestored {
+  hosts: number;
+  databases: number;
+  secrets: number;
+  settings: boolean;
 }

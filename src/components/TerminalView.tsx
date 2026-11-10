@@ -5,7 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import { RotateCcw, Search, X } from "lucide-react";
+import { RotateCcw, Search, WifiOff, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, b64ToBytes, binaryStringToB64, errMsg, type Opener } from "../lib/ipc";
 import type { TermEvent } from "../lib/types";
@@ -117,11 +117,25 @@ interface Props {
   /** Bump to tear down and re-open the session. */
   generation?: number;
   toolbar?: React.ReactNode;
+  /** What to do when the connection drops (SSH): reconnect with backoff, ask, or close the tab. */
+  onLost?: "reconnect" | "ask" | "close";
+  /** SSH host to ping after sleep or a network change, so a dead link is noticed quickly. */
+  probeHostId?: string;
+  /** Close the tab (used by the "close" disconnect policy). */
+  onCloseTab?: () => void;
 }
 
-type Status = "connecting" | "open" | "closed" | "error";
+type Status = "connecting" | "open" | "closed" | "error" | "lost";
 
-export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar }: Props) {
+/** Seconds to wait before each automatic reconnect attempt. */
+const BACKOFF = [1, 2, 5, 10, 30];
+/** Errors that retrying won't fix: stop and show them. */
+const FATAL = /unlock the vault|authentication|permission denied|host key|no .* secret selected|cancelled/i;
+/** Output flow control: pause the backend above HIGH bytes waiting to be drawn, resume below LOW. */
+const FLOW_HIGH = 2 * 1024 * 1024;
+const FLOW_LOW = 512 * 1024;
+
+export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar, onLost, probeHostId, onCloseTab }: Props) {
   const settings = useApp((s) => s.settings);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -133,11 +147,89 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
   const [retry, setRetry] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Automatic reconnect: attempt number, seconds left, waiting for the network.
+  const attempt = useRef(0);
+  const auto = useRef(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [offline, setOffline] = useState(false);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Bytes handed to xterm but not drawn yet (flow control).
+  const pending = useRef(0);
+  const flowPaused = useRef(false);
 
   const openRef = useRef(open);
   openRef.current = open;
-  const cbRef = useRef({ onTitle, onOpened, onClosed });
-  cbRef.current = { onTitle, onOpened, onClosed };
+  const cbRef = useRef({ onTitle, onOpened, onClosed, onLost, onCloseTab });
+  cbRef.current = { onTitle, onOpened, onClosed, onLost, onCloseTab };
+
+  const stopTimer = () => {
+    if (timer.current) clearInterval(timer.current);
+    timer.current = null;
+  };
+
+  /** Wait (backoff), then reopen; if offline, wait for the network first. */
+  const scheduleReconnect = useCallback(() => {
+    stopTimer();
+    auto.current = true;
+    if (!navigator.onLine) {
+      setOffline(true);
+      setCountdown(null);
+      return;
+    }
+    setOffline(false);
+    let left = BACKOFF[Math.min(attempt.current, BACKOFF.length - 1)];
+    attempt.current += 1;
+    setCountdown(left);
+    timer.current = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        stopTimer();
+        setCountdown(null);
+        setRetry((r) => r + 1);
+      } else setCountdown(left);
+    }, 1000);
+  }, []);
+
+  const stopReconnect = useCallback(() => {
+    stopTimer();
+    auto.current = false;
+    attempt.current = 0;
+    setCountdown(null);
+    setOffline(false);
+    setStatus("closed");
+    setError("Reconnect stopped");
+  }, []);
+
+  useEffect(() => stopTimer, []);
+
+  // Back online: reconnect now instead of waiting.
+  useEffect(() => {
+    if (!offline) return;
+    const h = () => {
+      setOffline(false);
+      setRetry((r) => r + 1);
+    };
+    window.addEventListener("online", h);
+    return () => window.removeEventListener("online", h);
+  }, [offline]);
+
+  // After sleep or a network change, ping the server so a dead connection is
+  // noticed in seconds instead of after the keepalive timeout.
+  useEffect(() => {
+    if (!probeHostId || status !== "open") return;
+    let last = Date.now();
+    const probe = () => api.sshProbe(probeHostId).catch(() => {});
+    const iv = setInterval(() => {
+      const now = Date.now();
+      if (now - last > 20_000) probe();
+      last = now;
+    }, 5000);
+    window.addEventListener("online", probe);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener("online", probe);
+    };
+  }, [probeHostId, status]);
 
   // Create xterm once.
   useEffect(() => {
@@ -250,11 +342,37 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
     } catch {
       /* ignore */
     }
+    pending.current = 0;
+    flowPaused.current = false;
     const ch = new Channel<TermEvent>();
     ch.onmessage = (ev) => {
       if (cancelled) return;
-      if (ev.type === "data") t.write(b64ToBytes(ev.data));
-      else if (ev.type === "error") {
+      if (ev.type === "data") {
+        const bytes = b64ToBytes(ev.data);
+        pending.current += bytes.length;
+        t.write(bytes, () => {
+          pending.current -= bytes.length;
+          const id = sessionId.current ?? myId;
+          if (flowPaused.current && pending.current < FLOW_LOW && id) {
+            flowPaused.current = false;
+            api.termFlow(id, false).catch(() => {});
+          }
+        });
+        const id = sessionId.current ?? myId;
+        if (!flowPaused.current && pending.current > FLOW_HIGH && id) {
+          flowPaused.current = true;
+          api.termFlow(id, true).catch(() => {});
+        }
+      } else if (ev.type === "lost") {
+        sessionId.current = null;
+        cbRef.current.onClosed?.(myId);
+        t.write(`\r\n\x1b[33m[connection lost: ${ev.reason}]\x1b[0m\r\n`);
+        setStatus("lost");
+        const policy = cbRef.current.onLost ?? "ask";
+        setError(policy === "ask" ? `Connection lost: ${ev.reason}` : null);
+        if (policy === "reconnect") scheduleReconnect();
+        else if (policy === "close") cbRef.current.onCloseTab?.();
+      } else if (ev.type === "error") {
         t.write(`\r\n\x1b[31m${ev.message}\x1b[0m\r\n`);
       } else if (ev.type === "exit") {
         setStatus("closed");
@@ -273,6 +391,9 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
         }
         myId = id;
         sessionId.current = id;
+        if (auto.current) t.write("\x1b[32m[reconnected]\x1b[0m\r\n");
+        auto.current = false;
+        attempt.current = 0;
         setStatus((s) => (s === "connecting" ? "open" : s));
         cbRef.current.onOpened?.(id);
         if (!readOnly) api.termResize(id, t.cols, t.rows).catch(() => {});
@@ -280,8 +401,17 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       })
       .catch((e) => {
         if (cancelled) return;
+        const msg = errMsg(e);
+        // While reconnecting on our own, keep trying unless retrying can't help.
+        if (auto.current && !FATAL.test(msg)) {
+          t.write(`\x1b[90m[reconnect failed: ${msg}]\x1b[0m\r\n`);
+          setStatus("lost");
+          scheduleReconnect();
+          return;
+        }
+        auto.current = false;
         setStatus("error");
-        setError(errMsg(e));
+        setError(msg);
         useApp.getState().error(e);
       });
     return () => {
@@ -309,6 +439,9 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
   }, [active, readOnly]);
 
   const reconnect = useCallback(() => {
+    stopTimer();
+    setCountdown(null);
+    setOffline(false);
     term.current?.write("\r\n\x1b[90m[reconnecting…]\x1b[0m\r\n");
     setRetry((r) => r + 1);
   }, []);
@@ -328,7 +461,23 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
         {status === "connecting" && (
           <div className="pointer-events-none absolute right-3 top-2 rounded bg-surface-3/90 px-2 py-1 text-xs text-fg-muted">Connecting…</div>
         )}
-        {(status === "closed" || status === "error") && !readOnly && (
+        {status === "lost" && !readOnly && (countdown !== null || offline) && (
+          <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-lg border border-warn/40 bg-surface-2/95 px-3 py-2 shadow-lg" role="status">
+            {offline ? <WifiOff size={14} className="text-warn" /> : <RotateCcw size={14} className="animate-spin text-warn [animation-direction:reverse]" />}
+            <span className="text-xs text-fg-muted">
+              {offline
+                ? "Connection lost. Waiting for the network…"
+                : `Connection lost. Reconnecting in ${countdown}s${attempt.current > 1 ? ` (attempt ${attempt.current})` : ""}`}
+            </span>
+            <Button size="sm" variant="primary" onClick={reconnect}>
+              Reconnect now
+            </Button>
+            <Button size="sm" variant="ghost" onClick={stopReconnect}>
+              Stop
+            </Button>
+          </div>
+        )}
+        {(status === "closed" || status === "error" || (status === "lost" && countdown === null && !offline && !auto.current)) && !readOnly && (
           <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-lg border border-border bg-surface-2/95 px-3 py-2 shadow-lg">
             <span className="max-w-md truncate text-xs text-fg-muted">{error ?? "Session closed"}</span>
             <Button size="sm" variant="primary" onClick={reconnect}>

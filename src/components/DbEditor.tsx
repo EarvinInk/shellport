@@ -1,10 +1,11 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { Lock, Play, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DB_ENGINES, SSL_LABELS } from "../lib/dbEngines";
 import { api, errMsg } from "../lib/ipc";
-import type { DbEngine, DbProfile, SslMode } from "../lib/types";
+import type { DbEngine, DbProfile, DbSafety, SslMode } from "../lib/types";
 import { useApp } from "../store";
-import { Button, Field, Input, Modal, Select } from "./ui";
+import { Button, Checkbox, Field, Input, Modal, Select } from "./ui";
 
 const blank = (): DbProfile => ({
   id: "",
@@ -18,10 +19,17 @@ const blank = (): DbProfile => ({
   passwordSecretId: null,
   viaHostId: null,
   sslMode: "prefer",
+  safety: "confirm",
   options: {},
   color: null,
   tags: [],
 });
+
+const SAFETY: { value: DbSafety; label: string; help: string }[] = [
+  { value: "off", label: "Off", help: "Run everything as typed." },
+  { value: "confirm", label: "Confirm risky", help: "Ask before UPDATE/DELETE without WHERE, DROP or TRUNCATE." },
+  { value: "read-only", label: "Read-only", help: "Writes are refused. Good for production." },
+];
 
 const COLORS = ["", "#8b5cf6", "#3b82f6", "#14b8a6", "#f43f5e", "#f59e0b", "#22c55e"];
 
@@ -96,6 +104,15 @@ export function DbEditor() {
   };
 
   const del = async () => {
+    if (
+      useApp.getState().dbTx[d.id] &&
+      !(await ask("A tab on this connection has an open transaction. Deleting closes it and rolls the changes back.", {
+        title: "Delete connection?",
+        kind: "warning",
+        okLabel: "Delete",
+      }))
+    )
+      return;
     try {
       await api.dbDelete(d.id);
       await refreshDbs();
@@ -263,6 +280,32 @@ export function DbEditor() {
           </div>
         </Section>
 
+        <Section title="Safety">
+          <div role="radiogroup" aria-label="Safety level" className="grid grid-cols-3 gap-2">
+            {SAFETY.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={d.safety === o.value}
+                onClick={() => set("safety", o.value)}
+                className={
+                  "rounded-lg border px-3 py-2.5 text-left transition-colors cursor-pointer " +
+                  (d.safety === o.value ? "border-accent bg-accent/10" : "border-border hover:bg-surface-3")
+                }
+              >
+                <div className="text-sm font-medium">{o.label}</div>
+                <div className="mt-0.5 text-xs text-fg-muted">{o.help}</div>
+              </button>
+            ))}
+          </div>
+          {d.safety === "read-only" && (
+            <p className="mt-2 text-xs text-fg-subtle">
+              Shellport asks the server to refuse writes for this session. For a hard guarantee, also connect with a database role that only has read access.
+            </p>
+          )}
+        </Section>
+
         {(engine.sslModes.length > 0 || engine.extraFields.length > 0) && (
           <Section title="Advanced">
             <div className="grid grid-cols-2 gap-4">
@@ -277,11 +320,18 @@ export function DbEditor() {
                   </Select>
                 </Field>
               )}
-              {engine.extraFields.map((f) => (
-                <Field key={f.key} label={f.label} hint={f.hint}>
-                  <Input value={d.options[f.key] ?? ""} onChange={(e) => setOption(f.key, e.target.value)} placeholder={f.placeholder} />
-                </Field>
-              ))}
+              {engine.extraFields.map((f) =>
+                f.type === "checkbox" ? (
+                  <div key={f.key} className="col-span-2 flex flex-col gap-1.5">
+                    <Checkbox label={f.label} checked={d.options[f.key] === "1"} onChange={(v) => setOption(f.key, v ? "1" : "")} />
+                    {f.hint && <span className="pl-6 text-xs text-fg-subtle">{f.hint}</span>}
+                  </div>
+                ) : (
+                  <Field key={f.key} label={f.label} hint={f.hint}>
+                    <Input value={d.options[f.key] ?? ""} onChange={(e) => setOption(f.key, e.target.value)} placeholder={f.placeholder} />
+                  </Field>
+                ),
+              )}
             </div>
           </Section>
         )}

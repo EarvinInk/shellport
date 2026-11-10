@@ -1,3 +1,4 @@
+mod backup;
 mod commands;
 mod db;
 mod docker;
@@ -87,6 +88,9 @@ pub fn run() {
             commands::term_write_b64,
             commands::term_resize,
             commands::term_close,
+            commands::term_flow,
+            commands::term_kill_tmux,
+            commands::ssh_probe,
             commands::sftp_home,
             commands::sftp_list,
             commands::local_list,
@@ -136,6 +140,11 @@ pub fn run() {
             commands::db_children,
             commands::db_query,
             commands::db_cancel,
+            commands::db_tx_state,
+            commands::backup_export,
+            commands::backup_pick,
+            commands::backup_preview,
+            commands::backup_import,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shellport");

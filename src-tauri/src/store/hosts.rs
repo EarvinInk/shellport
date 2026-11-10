@@ -36,6 +36,16 @@ pub struct PortForward {
     pub auto_start: bool,
 }
 
+/// What a terminal does when its connection drops unexpectedly.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OnDisconnect {
+    #[default]
+    Reconnect,
+    Ask,
+    Close,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
@@ -65,6 +75,11 @@ pub struct Host {
     /// Command to run after login (e.g. `cd /srv && exec bash`).
     #[serde(default)]
     pub startup_command: Option<String>,
+    #[serde(default)]
+    pub on_disconnect: OnDisconnect,
+    /// Run each terminal inside a tmux session that survives disconnects.
+    #[serde(default)]
+    pub tmux_session: bool,
 }
 
 fn default_port() -> u16 {
@@ -148,6 +163,25 @@ impl HostStore {
             }
         }
         self.save()
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        self.hosts.iter().any(|h| h.id == id)
+    }
+
+    /// Add hosts from a backup, keeping their ids; existing ids are skipped.
+    pub fn merge(&mut self, hosts: Vec<Host>) -> Result<usize> {
+        let mut n = 0;
+        for h in hosts {
+            if !self.has(&h.id) {
+                self.hosts.push(h);
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.save()?;
+        }
+        Ok(n)
     }
 
     /// Add many hosts at once, skipping ones whose name already exists.

@@ -12,7 +12,7 @@ import { ImportDialog } from "./components/ImportDialog";
 import { TerminalView } from "./components/TerminalView";
 import { Empty } from "./components/ui";
 import { api } from "./lib/ipc";
-import { useApp, type Tab } from "./store";
+import { onTabClosed, useApp, type Tab } from "./store";
 import { DbView } from "./views/DbView";
 import { DockerView, ExecView, LogsView, MultiLogsView } from "./views/DockerView";
 import { SettingsView } from "./views/SettingsView";
@@ -48,7 +48,7 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
     case "local":
       return <TerminalView active={active} onTitle={(x) => renameTab(t.id, x)} open={(c, r, ch) => api.termOpenLocal(c, r, ch)} />;
     case "ssh":
-      return <TerminalView active={active} open={(c, r, ch) => api.termOpenSsh(t.hostId, c, r, ch)} />;
+      return <SshTerminal tabId={t.id} hostId={t.hostId} active={active} />;
     case "sftp":
       return <SftpView hostId={t.hostId} active={active} />;
     case "docker":
@@ -60,7 +60,7 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
     case "mlogs":
       return <MultiLogsView endpoint={t.endpoint} containers={t.containers} active={active} />;
     case "db":
-      return <DbView dbId={t.dbId} active={active} />;
+      return <DbView tabId={t.id} dbId={t.dbId} active={active} />;
     case "vault":
       return <VaultView />;
     case "settings":
@@ -70,6 +70,8 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
 
 export default function App() {
   useAppErrors();
+  useApp((s) => s.dbs);
+  useApp((s) => s.hosts);
   const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, refreshDbs, loadSettings, toast } = useApp();
 
   useEffect(() => {
@@ -191,6 +193,7 @@ export default function App() {
           {tabs.map((t) => (
             <div
               key={t.id}
+              style={tabColor(t) ? { boxShadow: `inset 0 2px 0 ${tabColor(t)}` } : undefined}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
@@ -248,6 +251,36 @@ export default function App() {
       <Toasts />
     </div>
   );
+}
+
+/** An SSH terminal tab: reconnect policy and tmux session come from the host. */
+function SshTerminal({ tabId, hostId, active }: { tabId: string; hostId: string; active: boolean }) {
+  const host = useApp((s) => s.hosts.find((h) => h.id === hostId));
+  const closeTab = useApp((s) => s.closeTab);
+  const tmux = !!host?.tmuxSession;
+  // Closing the tab (not reconnecting or quitting) ends its tmux session too.
+  useEffect(() => {
+    if (!tmux) return;
+    onTabClosed(tabId, () => api.termKillTmux(hostId, tabId).catch(() => {}));
+    return () => onTabClosed(tabId, null);
+  }, [tmux, tabId, hostId]);
+  return (
+    <TerminalView
+      active={active}
+      open={(c, r, ch) => api.termOpenSsh(hostId, c, r, ch, tabId)}
+      onLost={host?.onDisconnect ?? "reconnect"}
+      probeHostId={hostId}
+      onCloseTab={() => closeTab(tabId)}
+    />
+  );
+}
+
+/** The colour of the host or database a tab belongs to, shown as a stripe so production stands out. */
+function tabColor(t: Tab): string | null {
+  const { hosts, dbs } = useApp.getState();
+  if (t.kind === "db") return dbs.find((d) => d.id === t.dbId)?.color ?? null;
+  if ("hostId" in t) return hosts.find((h) => h.id === t.hostId)?.color ?? null;
+  return null;
 }
 
 function RailButton({ title, active, onClick, children }: { title: string; active?: boolean; onClick: () => void; children: React.ReactNode }) {

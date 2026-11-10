@@ -33,7 +33,10 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 
 ### Terminals and saved hosts
 
-- Tabbed **SSH** and **local** terminals with search, four colour themes, and one-click reconnect.
+- Tabbed **SSH** and **local** terminals with search and four colour themes.
+- **Reconnects on its own** after sleep, Wi-Fi changes or server restarts (per host: reconnect, ask, or close the tab).
+- Optional **tmux sessions** per host, so programs keep running through a dropped connection and reconnecting picks up where you left off.
+- Stays responsive when a command floods the terminal with output.
 - Save hosts in **groups** (Production, Staging, …) with colours and tags.
 - Sign in with a **password, a key in the vault, a key file, or ssh-agent**.
 - **Two-factor (keyboard-interactive) logins**, e.g. one-time codes.
@@ -71,6 +74,10 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - Connect **directly or through any saved SSH host**. The tunnel is private to Shellport (an ephemeral port on 127.0.0.1) and honours jump hosts.
 - Passwords live in the **vault**; TLS modes from *disable* to *verify-full*.
 - Run whole scripts or just the selection (Ctrl+Enter), **cancel** long queries, cap rows per statement, see server notices, copy cells or results as TSV.
+- **Safe on production**: per connection, choose *Confirm risky* (asks before `UPDATE`/`DELETE` without `WHERE`, `DROP`, `TRUNCATE`) or *Read-only*; the connection's colour marks its tabs.
+- An **open-transaction** indicator with Commit / Rollback, and a warning before closing a tab would roll it back.
+- Large results stay fast: only the requested rows leave the server, and the grid draws just what is on screen.
+- Works behind **PgBouncer / Supabase poolers**, and reconnects after a dropped connection without re-running your query.
 - More engines (MySQL, SQLite, …) can be added as drivers; see *Adding a database engine* below.
 
 ### Encrypted vault
@@ -81,6 +88,7 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - **Generate ed25519 keys** and copy the public key for a server's `authorized_keys`.
 - **Auto-lock** after a period of inactivity.
 - Optionally **remember the vault** in your login keyring (GNOME Keyring / KWallet) so it unlocks when you log in.
+- **Encrypted backup & restore** (Settings): hosts, database connections, settings and, if you choose, vault secrets in one passphrase-protected file, for moving to a new machine. No account or cloud involved.
 
 ### Safe by default
 
@@ -206,7 +214,7 @@ cd src-tauri && cargo run --example smoke          # headless protocol smoke tes
 cd src-tauri && cargo test --lib -- --ignored postgres_live   # database driver against the test Postgres
 ```
 
-The compose file also starts PostgreSQL with demo data (user, password and database `shellport` / `shellport-test` / `shellport`). It is published on `127.0.0.1:55432` for direct connections, and is reachable as host `postgres`, port `5432` through the SSH test host.
+The compose file also starts PgBouncer in transaction mode on `127.0.0.1:56432` (for `cargo test --lib -- --ignored pgbouncer_live`) and PostgreSQL with demo data (user, password and database `shellport` / `shellport-test` / `shellport`). It is published on `127.0.0.1:55432` for direct connections, and is reachable as host `postgres`, port `5432` through the SSH test host.
 
 ```
 src-tauri/src/

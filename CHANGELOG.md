@@ -8,6 +8,18 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 - Databases: a built-in PostgreSQL client with saved connections, a schema browser, a SQL editor (Ctrl+Enter runs the script or the selection), a result grid, query cancel, row limits and server notices.
 - Database connections can go through any saved SSH host (including jump hosts) over a private tunnel; passwords are kept in the vault.
 - Database support is driver-based, so more engines can be added without changing the rest of the app.
+- Database safety levels per connection: *Confirm risky* asks before `UPDATE`/`DELETE` without `WHERE`, `DROP` and `TRUNCATE`; *Read-only* refuses writes. Connection colours mark their tabs.
+- An open-transaction indicator with Commit and Rollback, and a warning before closing a tab or deleting a connection would roll it back.
+- Database connections work behind PgBouncer and Supabase poolers (detected automatically, or set per connection).
+- SSH terminals reconnect automatically after sleep, network changes or server restarts; each host can choose reconnect, ask or close.
+- Optional tmux sessions per host keep programs running through dropped connections.
+- Encrypted backup and restore of hosts, database connections, settings and (optionally) vault secrets, in Settings.
+
+### Changed
+- Query results only fetch the rows you asked for from the server, and the grid draws only the visible rows, so large results no longer freeze the window.
+- Each database tab keeps its own SQL draft.
+- A dropped database connection reconnects without re-running the last query.
+- Terminals batch output and slow the source down when drawing falls behind, so floods of output no longer freeze the app.
 
 ## [0.1.1] - 2026-11-10
 

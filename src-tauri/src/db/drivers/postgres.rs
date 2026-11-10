@@ -3,12 +3,18 @@
 //! Data goes over the simple-query (text) protocol, which runs any script
 //! (several statements, DDL, `BEGIN`…`COMMIT`) the way psql does. For a single
 //! statement the query is also prepared, only to learn the column types, so
-//! numbers, booleans and JSON come back typed.
+//! numbers, booleans and JSON come back typed. A single plain SELECT is read
+//! through a server-side cursor so only `row_limit` rows ever leave the server.
+//!
+//! Behind a transaction-mode pooler (PgBouncer, Supabase) named prepared
+//! statements break, so "pooler mode" skips them: schema lookups always use
+//! unnamed statements (`query_typed`), and query results come back as text.
 
 use crate::db::{
-    quote_ident, Capabilities, Cell, ColumnMeta, ConnectParams, DbDriver, DbEngine, DbSession, EngineInfo, QueryOutput, SchemaNode, SslMode,
-    StatementResult,
+    quote_ident, risk, Capabilities, Cell, ColumnMeta, ConnectParams, DbDriver, DbEngine, DbSession, EngineInfo, QueryOutput, SchemaNode, SslMode,
+    StatementResult, TxState,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use futures_util::{pin_mut, StreamExt};
@@ -63,8 +69,29 @@ impl DbDriver for Postgres {
         if let Some(pw) = &p.password {
             cfg.password(pw.as_bytes());
         }
+        // Notice dead connections (sleep, NAT timeouts) within about a minute.
+        cfg.keepalives(true)
+            .keepalives_idle(Duration::from_secs(30))
+            .keepalives_interval(Duration::from_secs(10))
+            .keepalives_retries(3);
+        let pooler = p.options.get("pooler").is_some_and(|v| v == "1" || v == "true");
+        // Poolers reject startup options, so read-only is then checked by us
+        // before each query instead (see `query`).
+        if p.read_only && !pooler {
+            cfg.options("-c default_transaction_read_only=on");
+        }
         let tls = tls_connector(p.ssl_mode == SslMode::VerifyFull)?;
-        let (client, mut conn) = cfg.connect(tls.clone()).await.map_err(pg_err)?;
+        let (client, mut conn) = match cfg.connect(tls.clone()).await {
+            Ok(c) => c,
+            // A pooler that doesn't pass startup options through: connect again
+            // in pooler mode, where read-only is checked on our side.
+            Err(e) if p.read_only && !pooler && e.as_db_error().is_some_and(|d| d.message().contains("unsupported startup parameter")) => {
+                let mut p = p;
+                p.options.insert("pooler".into(), "1".into());
+                return Box::pin(self.connect(p)).await;
+            }
+            Err(e) => return Err(pg_err(e)),
+        };
 
         // Drive the connection and collect NOTICE/WARNING messages.
         let notices: Arc<Mutex<Vec<String>>> = Default::default();
@@ -97,7 +124,15 @@ impl DbDriver for Postgres {
                 return Err(pg_err(e));
             }
         };
-        Ok(Arc::new(PgSession { client, tls, notices, conn_task: task.abort_handle(), version }))
+        Ok(Arc::new(PgSession {
+            client,
+            tls,
+            notices,
+            conn_task: task.abort_handle(),
+            version,
+            pooler: AtomicBool::new(pooler),
+            read_only_client_check: p.read_only && pooler,
+        }))
     }
 }
 
@@ -107,6 +142,39 @@ struct PgSession {
     notices: Arc<Mutex<Vec<String>>>,
     conn_task: AbortHandle,
     version: String,
+    /// Avoid named prepared statements (transaction-mode pooler).
+    pooler: AtomicBool,
+    /// Read-only the server can't enforce for us (pooler mode).
+    read_only_client_check: bool,
+}
+
+impl PgSession {
+    /// Rows of a lookup query, as text, using an unnamed statement (works
+    /// behind poolers). Parameters are text.
+    async fn lookup(&self, sql: &str, params: &[&str]) -> Result<Vec<Vec<Option<String>>>> {
+        let p: Vec<(&(dyn tokio_postgres::types::ToSql + Sync), Type)> =
+            params.iter().map(|v| (v as &(dyn tokio_postgres::types::ToSql + Sync), Type::TEXT)).collect();
+        let rows = self.client.query_typed(sql, &p).await.map_err(pg_err)?;
+        Ok(rows.iter().map(|r| (0..r.len()).map(|i| r.get::<_, Option<String>>(i)).collect()).collect())
+    }
+
+    /// Column types of a single statement, when it can be prepared.
+    async fn column_types(&self, sql: &str) -> Vec<Type> {
+        if self.pooler.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        match self.client.prepare(sql).await {
+            Ok(st) => st.columns().iter().map(|c| c.type_().clone()).collect(),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("prepared statement") && (msg.contains("does not exist") || msg.contains("already exists")) {
+                    log::info!("named prepared statements unsupported here (pooler?); switching to pooler mode");
+                    self.pooler.store(true, Ordering::Relaxed);
+                }
+                Vec::new()
+            }
+        }
+    }
 }
 
 impl Drop for PgSession {
@@ -141,11 +209,11 @@ impl DbSession for PgSession {
                      WHERE nspname NOT LIKE 'pg\\_toast%' AND nspname NOT LIKE 'pg\\_temp%' \
                      ORDER BY nspname IN {SYSTEM_SCHEMAS}, nspname"
                 );
-                let rows = self.client.query(&sql, &[]).await.map_err(pg_err)?;
+                let rows = self.lookup(&sql, &[]).await?;
                 Ok(rows
                     .iter()
                     .map(|r| {
-                        let s: String = r.get(0);
+                        let s = col(r, 0);
                         let mut n = node(s.clone(), vec![s.clone()], "schema", None, true, None);
                         n.system = s == "pg_catalog" || s == "information_schema";
                         n.insert_text = Some(quote_ident(&s));
@@ -160,17 +228,17 @@ impl DbSession for PgSession {
             [schema, folder] if folder == "tables" || folder == "views" => {
                 let kinds = if folder == "tables" { "('r','p','f')" } else { "('v','m')" };
                 let sql = format!(
-                    "SELECT c.relname::text, c.relkind::text, c.reltuples::bigint FROM pg_class c \
+                    "SELECT c.relname::text, c.relkind::text, c.reltuples::bigint::text FROM pg_class c \
                      JOIN pg_namespace n ON n.oid = c.relnamespace \
                      WHERE n.nspname = $1 AND c.relkind IN {kinds} ORDER BY c.relname"
                 );
-                let rows = self.client.query(&sql, &[schema]).await.map_err(pg_err)?;
+                let rows = self.lookup(&sql, &[schema.as_str()]).await?;
                 Ok(rows
                     .iter()
                     .map(|r| {
-                        let name: String = r.get(0);
-                        let kind: String = r.get(1);
-                        let est: i64 = r.get(2);
+                        let name = col(r, 0);
+                        let kind = col(r, 1);
+                        let est: i64 = col(r, 2).parse().unwrap_or(-1);
                         let detail = match kind.as_str() {
                             "m" => Some("materialized".to_string()),
                             "p" => Some("partitioned".to_string()),
@@ -191,13 +259,13 @@ impl DbSession for PgSession {
                            CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END \
                            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
                            WHERE n.nspname = $1 AND p.prokind IN ('f','p') ORDER BY 1, 2 LIMIT 1000";
-                let rows = self.client.query(sql, &[schema]).await.map_err(pg_err)?;
+                let rows = self.lookup(sql, &[schema.as_str()]).await?;
                 Ok(rows
                     .iter()
                     .map(|r| {
-                        let name: String = r.get(0);
-                        let args: String = r.get(1);
-                        let kind: String = r.get(2);
+                        let name = col(r, 0);
+                        let args = col(r, 1);
+                        let kind = col(r, 2);
                         let mut n = node(format!("{name}({args})"), vec![schema.clone(), folder.clone(), name.clone()], &kind, None, false, None);
                         n.insert_text = Some(format!("{}.{}", quote_ident(schema), quote_ident(&name)));
                         n
@@ -205,20 +273,20 @@ impl DbSession for PgSession {
                     .collect())
             }
             [schema, _, rel] => {
-                let sql = "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod), a.attnotnull, \
-                           EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)) \
+                let sql = "SELECT a.attname::text, format_type(a.atttypid, a.atttypmod), a.attnotnull::text, \
+                           EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey))::text \
                            FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
                            JOIN pg_namespace n ON n.oid = c.relnamespace \
                            WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped \
                            ORDER BY a.attnum";
-                let rows = self.client.query(sql, &[schema, rel]).await.map_err(pg_err)?;
+                let rows = self.lookup(sql, &[schema.as_str(), rel.as_str()]).await?;
                 Ok(rows
                     .iter()
                     .map(|r| {
-                        let name: String = r.get(0);
-                        let ty: String = r.get(1);
-                        let not_null: bool = r.get(2);
-                        let pk: bool = r.get(3);
+                        let name = col(r, 0);
+                        let ty = col(r, 1);
+                        let not_null = col(r, 2) == "true";
+                        let pk = col(r, 3) == "true";
                         let mut detail = ty;
                         if pk {
                             detail.push_str(" · PK");
@@ -239,13 +307,82 @@ impl DbSession for PgSession {
 
     async fn query(&self, sql: &str, row_limit: usize) -> Result<QueryOutput> {
         let started = Instant::now();
+        if self.read_only_client_check && !risk::is_read_only(sql) {
+            bail!("this connection is read-only; only queries that read data can run");
+        }
         self.notices.lock().clear();
-        // Only a single statement can be prepared; for scripts this fails
-        // and every value is shown as text.
-        let types: Vec<Type> = match self.client.prepare(sql).await {
-            Ok(st) => st.columns().iter().map(|c| c.type_().clone()).collect(),
-            Err(_) => Vec::new(),
+        let types = self.column_types(sql).await;
+        let tx_before = self.tx_state().await.unwrap_or(TxState::Idle);
+
+        // A single plain query is read through a cursor, so the server stops
+        // after `row_limit` rows instead of sending the whole result.
+        let cursor = if tx_before == TxState::Failed { None } else { risk::as_cursor_query(sql) };
+        let results = match cursor {
+            Some(q) => {
+                let own_tx = tx_before == TxState::Idle;
+                let prefix = format!("{}DECLARE shellport_cursor NO SCROLL CURSOR FOR ", if own_tx { "BEGIN; " } else { "" });
+                let script = format!(
+                    "{prefix}{q}; FETCH {} FROM shellport_cursor; CLOSE shellport_cursor;{}",
+                    row_limit + 1,
+                    if own_tx { " COMMIT;" } else { "" },
+                );
+                // Error positions must point into the user's text, not the wrapper.
+                let offset = prefix.chars().count() as u32;
+                match self.run_script(&script, &types, row_limit).await.map_err(|e| shift_position(e, offset)) {
+                    // Keep only the FETCH result (it is the one with columns).
+                    Ok(rs) => {
+                        let mut fetched = rs.into_iter().find(|r| !r.columns.is_empty()).unwrap_or_default();
+                        fetched.rows_affected = Some(fetched.rows.len() as u64);
+                        vec![fetched]
+                    }
+                    Err(e) => {
+                        if own_tx {
+                            let _ = self.client.simple_query("ROLLBACK").await;
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+            None => self.run_script(sql, &types, row_limit).await?,
         };
+        let tx = self.tx_state().await.unwrap_or(TxState::Idle);
+        let notices = std::mem::take(&mut *self.notices.lock());
+        Ok(QueryOutput { results, notices, elapsed_ms: started.elapsed().as_millis() as u64, tx })
+    }
+
+    async fn cancel(&self) -> Result<()> {
+        self.client.cancel_token().cancel_query(self.tls.clone()).await.map_err(pg_err)
+    }
+
+    async fn close(&self) {
+        self.conn_task.abort();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.client.is_closed()
+    }
+
+    async fn tx_state(&self) -> Result<TxState> {
+        // Inside a transaction block now() is the block's start time, so it
+        // differs from the time this statement started; outside, they match.
+        match self.client.simple_query("SELECT now() = statement_timestamp()").await {
+            Ok(msgs) => {
+                let same = msgs.iter().find_map(|m| match m {
+                    SimpleQueryMessage::Row(r) => r.get(0).map(|v| v == "t"),
+                    _ => None,
+                });
+                Ok(if same.unwrap_or(true) { TxState::Idle } else { TxState::Open })
+            }
+            Err(e) if e.as_db_error().is_some_and(|d| d.code() == &tokio_postgres::error::SqlState::IN_FAILED_SQL_TRANSACTION) => Ok(TxState::Failed),
+            Err(e) => Err(pg_err(e)),
+        }
+    }
+}
+
+impl PgSession {
+    /// Run a script over the simple protocol, keeping at most `row_limit` rows
+    /// per statement. `types` (if known) apply to every result's columns.
+    async fn run_script(&self, sql: &str, types: &[Type], row_limit: usize) -> Result<Vec<StatementResult>> {
         let stream = self.client.simple_query_raw(sql).await.map_err(pg_err)?;
         pin_mut!(stream);
         let mut results = Vec::new();
@@ -281,17 +418,13 @@ impl DbSession for PgSession {
         if let Some(r) = cur.take() {
             results.push(r);
         }
-        let notices = std::mem::take(&mut *self.notices.lock());
-        Ok(QueryOutput { results, notices, elapsed_ms: started.elapsed().as_millis() as u64 })
+        Ok(results)
     }
+}
 
-    async fn cancel(&self) -> Result<()> {
-        self.client.cancel_token().cancel_query(self.tls.clone()).await.map_err(pg_err)
-    }
-
-    async fn close(&self) {
-        self.conn_task.abort();
-    }
+/// Text of column `i` of a lookup row ("" for NULL).
+fn col(r: &[Option<String>], i: usize) -> String {
+    r.get(i).cloned().flatten().unwrap_or_default()
 }
 
 fn capitalize(s: &str) -> String {
@@ -316,6 +449,18 @@ fn text_to_cell(v: Option<&str>, ty: Option<&Type>) -> Cell {
         Type::JSON | Type::JSONB => Cell::Json(v.into()),
         Type::BYTEA => Cell::Bytes(v.into()),
         _ => Cell::Text(v.into()),
+    }
+}
+
+/// Move "(at character N)" back by `offset` characters.
+fn shift_position(e: anyhow::Error, offset: u32) -> anyhow::Error {
+    let msg = format!("{e:#}");
+    let Some(start) = msg.rfind("(at character ") else { return e };
+    let rest = &msg[start + 14..];
+    let Some(end) = rest.find(')') else { return e };
+    match rest[..end].parse::<u32>() {
+        Ok(p) if p > offset => anyhow!("{}(at character {}){}", &msg[..start], p - offset, &rest[end + 1..]),
+        _ => e,
     }
 }
 
@@ -397,9 +542,53 @@ mod tests {
     }
 
     #[test]
+    fn error_positions_shift_back() {
+        let e = shift_position(anyhow!("ERROR: syntax error at or near \"7\" (at character 89)"), 53);
+        assert_eq!(e.to_string(), "ERROR: syntax error at or near \"7\" (at character 36)");
+        assert_eq!(shift_position(anyhow!("ERROR: boom"), 53).to_string(), "ERROR: boom");
+    }
+
+    #[test]
     fn tls_connectors_build() {
         tls_connector(true).unwrap();
         tls_connector(false).unwrap();
+    }
+
+    fn params(options: &[(&str, &str)], read_only: bool) -> ConnectParams {
+        ConnectParams {
+            host: "127.0.0.1".into(),
+            connect_host: "127.0.0.1".into(),
+            connect_port: 55432,
+            database: "shellport".into(),
+            username: "shellport".into(),
+            password: Some("shellport-test".to_string().into()),
+            ssl_mode: SslMode::Prefer,
+            options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<BTreeMap<_, _>>(),
+            read_only,
+        }
+    }
+
+    /// Needs the PgBouncer from dev/docker-compose.test.yml (transaction mode,
+    /// no prepared statements): `cargo test --lib -- --ignored pgbouncer_live`
+    #[tokio::test]
+    #[ignore]
+    async fn pgbouncer_live() {
+        let mut p = params(&[], false);
+        p.connect_port = 56432;
+        let s = Postgres.connect(p).await.unwrap();
+        // Several rounds so statements land on different server connections.
+        for _ in 0..5 {
+            let out = s.query("SELECT id, total FROM shop.orders ORDER BY id LIMIT 3", 10).await.unwrap();
+            assert_eq!(out.results[0].rows.len(), 3);
+            assert!(s.children(&["shop".into(), "tables".into()]).await.unwrap().iter().any(|n| n.name == "orders"));
+            assert!(!s.children(&["shop".into(), "tables".into(), "orders".into()]).await.unwrap().is_empty());
+        }
+        // Read-only without the pooler flag: falls back to pooler mode.
+        let mut p = params(&[], true);
+        p.connect_port = 56432;
+        let ro = Postgres.connect(p).await.unwrap();
+        assert!(ro.query("SELECT 1", 10).await.is_ok());
+        assert!(ro.query("DELETE FROM shop.orders WHERE id = -1", 10).await.unwrap_err().to_string().contains("read-only"));
     }
 
     /// Needs the Postgres from dev/docker-compose.test.yml:
@@ -407,28 +596,48 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn postgres_live() {
-        let s = Postgres
-            .connect(ConnectParams {
-                host: "127.0.0.1".into(),
-                connect_host: "127.0.0.1".into(),
-                connect_port: 55432,
-                database: "shellport".into(),
-                username: "shellport".into(),
-                password: Some("shellport-test".to_string().into()),
-                ssl_mode: SslMode::Prefer,
-                options: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-        assert!(s.server_version().starts_with("PostgreSQL"));
-        let out = s.query("SELECT 1 AS one, 'x'::text AS t, NULL::int AS n", 10).await.unwrap();
-        assert_eq!(out.results[0].rows[0], vec![Cell::Int(1), Cell::Text("x".into()), Cell::Null]);
-        let out = s.query("CREATE TEMP TABLE t(i int); INSERT INTO t SELECT generate_series(1,5); SELECT * FROM t", 3).await.unwrap();
-        assert_eq!(out.results.len(), 3);
-        assert!(out.results[2].truncated);
-        assert_eq!(out.results[2].rows.len(), 3);
-        let schemas = s.children(&[]).await.unwrap();
-        assert!(schemas.iter().any(|n| n.name == "public"));
+        for pooler in ["0", "1"] {
+            let s = Postgres.connect(params(&[("pooler", pooler)], false)).await.unwrap();
+            assert!(s.server_version().starts_with("PostgreSQL"));
+            let out = s.query("SELECT 1 AS one, 'x'::text AS t, NULL::int AS n", 10).await.unwrap();
+            let expect_one = if pooler == "0" { Cell::Int(1) } else { Cell::Text("1".into()) };
+            assert_eq!(out.results[0].rows[0], vec![expect_one, Cell::Text("x".into()), Cell::Null], "pooler={pooler}");
+            let out = s.query("CREATE TEMP TABLE t(i int); INSERT INTO t SELECT generate_series(1,5); SELECT * FROM t", 3).await.unwrap();
+            assert_eq!(out.results.len(), 3);
+            assert!(out.results[2].truncated);
+            assert_eq!(out.results[2].rows.len(), 3);
+            let schemas = s.children(&[]).await.unwrap();
+            assert!(schemas.iter().any(|n| n.name == "public"));
+            let cols = s.children(&["shop".into(), "tables".into(), "orders".into()]).await.unwrap();
+            assert!(cols.iter().any(|c| c.name == "id" && c.detail.as_deref().unwrap_or("").contains("PK")));
+        }
+
+        let s = Postgres.connect(params(&[], false)).await.unwrap();
+        // Errors on the cursor path point into the user's text.
+        let err = s.query("SELECT n, 7 7 FROM generate_series(1, 3) n", 10).await.unwrap_err().to_string();
+        assert!(err.ends_with("(at character 13)"), "{err}");
+        // Cursor path: the server stops after the limit.
+        let t = Instant::now();
+        let out = s.query("SELECT generate_series(1, 1000000) AS n", 100).await.unwrap();
+        assert_eq!(out.results.len(), 1);
+        assert_eq!(out.results[0].rows.len(), 100);
+        assert!(out.results[0].truncated);
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+        assert_eq!(out.tx, TxState::Idle);
+
+        // Transaction state, including inside the user's own transaction.
+        let out = s.query("BEGIN", 10).await.unwrap();
+        assert_eq!(out.tx, TxState::Open);
+        let out = s.query("SELECT 1", 10).await.unwrap();
+        assert_eq!(out.tx, TxState::Open, "cursor path must not commit the user's transaction");
+        assert!(s.query("SELECT 1/0", 10).await.is_err());
+        assert_eq!(s.tx_state().await.unwrap(), TxState::Failed);
+        let out = s.query("ROLLBACK", 10).await.unwrap();
+        assert_eq!(out.tx, TxState::Idle);
+        // A failing cursor query outside a transaction leaves none open.
+        assert!(s.query("SELECT 1/0", 10).await.is_err());
+        assert_eq!(s.tx_state().await.unwrap(), TxState::Idle);
+
         // Cancel a long query from another task.
         let s2 = s.clone();
         let slow = tokio::spawn(async move { s2.query("SELECT pg_sleep(30)", 1).await });
@@ -436,5 +645,14 @@ mod tests {
         s.cancel().await.unwrap();
         let err = slow.await.unwrap().unwrap_err().to_string();
         assert!(err.contains("cancel"), "{err}");
+        assert_eq!(s.tx_state().await.unwrap(), TxState::Idle);
+
+        // Read-only: enforced by the server, and by us in pooler mode.
+        for pooler in ["0", "1"] {
+            let ro = Postgres.connect(params(&[("pooler", pooler)], true)).await.unwrap();
+            assert!(ro.query("SELECT count(*) FROM shop.orders", 10).await.is_ok());
+            let err = ro.query("UPDATE shop.orders SET paid = paid WHERE id = 1", 10).await.unwrap_err().to_string();
+            assert!(err.contains("read-only"), "pooler={pooler}: {err}");
+        }
     }
 }

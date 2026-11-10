@@ -30,6 +30,32 @@ Double-click a saved connection to open it in a tab.
 
 Your editor text is kept per connection between sessions.
 
+## Safety
+
+Each connection has a **safety level**:
+
+| Level | What happens |
+|---|---|
+| Off | Everything runs as typed. |
+| Confirm risky (default) | Shellport asks before running `UPDATE` or `DELETE` without `WHERE`, `DROP`, `TRUNCATE` or `ALTER … DROP`, and lists each one with the reason. |
+| Read-only | The server is asked to refuse writes for the session; a **Read-only** badge shows in the toolbar. For a hard guarantee, also connect with a database role that can only read. |
+
+Give production connections a colour: it shows as a stripe on their tabs and toolbar.
+
+## Transactions
+
+After `BEGIN`, the toolbar shows **Transaction open** with **Commit** and **Rollback** (red, *Transaction failed*, after an error: roll back to continue). Closing the tab, reconnecting or deleting the connection while a transaction is open asks first, because it would roll the changes back. The connection's dot in the sidebar turns amber meanwhile.
+
+## Large results and dropped connections
+
+A single query only fetches the rows you asked for (the **Row limit**) from the server, and the grid draws just the rows on screen, so even million-row tables stay responsive.
+
+If the server restarts or the network drops, Shellport reconnects once on its own and tells you; your last query is **not** run again (it might have been a write). Click **Run again** if you want it.
+
+## Connection poolers
+
+Behind PgBouncer or Supabase's pooler in transaction mode, tick **Behind a connection pooler** in the connection's Advanced section (Shellport also switches on its own when it notices one). Values then show as text, and read-only is checked by Shellport rather than the server.
+
 ## TLS
 
 | Mode | Behaviour |

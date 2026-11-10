@@ -4,7 +4,7 @@ use crate::docker::{self, Action, ContainerInfo, EndpointInfo, ImageInfo};
 use crate::error::CmdResult;
 use crate::sftp::{self, FileEntry, TransferEvent};
 use crate::state::AppState;
-use crate::store::databases::DbProfile;
+use crate::store::databases::{DbProfile, Safety};
 use crate::store::hosts::Host;
 use crate::store::settings::Settings;
 use crate::store::ssh_config::{self, SshConfigEntry};
@@ -335,6 +335,7 @@ pub struct DbConnected {
     session_id: String,
     server_version: String,
     engine: crate::db::DbEngine,
+    safety: Safety,
 }
 
 #[tauri::command]
@@ -343,12 +344,11 @@ pub async fn db_connect(app: AppHandle, state: State<'_, AppState>, id: String) 
     let session_id = uuid::Uuid::new_v4().to_string();
     let (session, tunnel_task) = crate::db::session::open(&app, &db, &session_id).await?;
     let server_version = session.server_version();
-    state
-        .db_sessions
-        .lock()
-        .await
-        .insert(session_id.clone(), crate::db::session::OpenDb { session, profile_id: id, tunnel_task });
-    Ok(DbConnected { session_id, server_version, engine: db.engine })
+    state.db_sessions.lock().await.insert(
+        session_id.clone(),
+        crate::db::session::OpenDb { session, profile_id: id, tunnel_task, safety: db.safety },
+    );
+    Ok(DbConnected { session_id, server_version, engine: db.engine, safety: db.safety })
 }
 
 #[tauri::command]
@@ -359,23 +359,108 @@ pub async fn db_disconnect(state: State<'_, AppState>, session_id: String) -> Cm
 
 #[tauri::command]
 pub async fn db_children(state: State<'_, AppState>, session_id: String, path: Vec<String>) -> CmdResult<Vec<crate::db::SchemaNode>> {
-    let s = crate::db::session::get(&state, &session_id).await?;
-    Ok(s.children(&path).await?)
+    let (s, _) = crate::db::session::get(&state, &session_id).await?;
+    Ok(s.children(&path).await.map_err(|e| crate::db::session::map_lost(s.as_ref(), e))?)
 }
 
 /// Upper bound on rows kept per statement, whatever the UI asks for.
 const DB_MAX_ROWS: usize = 50_000;
 
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum QueryOutcome {
+    Done { output: crate::db::QueryOutput },
+    /// Nothing ran: these statements need the user's go-ahead first.
+    NeedsConfirmation { risks: Vec<crate::db::risk::Risk> },
+}
+
 #[tauri::command]
-pub async fn db_query(state: State<'_, AppState>, session_id: String, sql: String, row_limit: usize) -> CmdResult<crate::db::QueryOutput> {
-    let s = crate::db::session::get(&state, &session_id).await?;
-    Ok(s.query(&sql, row_limit.clamp(1, DB_MAX_ROWS)).await?)
+pub async fn db_query(state: State<'_, AppState>, session_id: String, sql: String, row_limit: usize, confirmed: bool) -> CmdResult<QueryOutcome> {
+    let (s, safety) = crate::db::session::get(&state, &session_id).await?;
+    if safety == Safety::Confirm && !confirmed {
+        let risks = crate::db::risk::classify(&sql);
+        if !risks.is_empty() {
+            return Ok(QueryOutcome::NeedsConfirmation { risks });
+        }
+    }
+    let output = s.query(&sql, row_limit.clamp(1, DB_MAX_ROWS)).await.map_err(|e| crate::db::session::map_lost(s.as_ref(), e))?;
+    Ok(QueryOutcome::Done { output })
 }
 
 #[tauri::command]
 pub async fn db_cancel(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
-    let s = crate::db::session::get(&state, &session_id).await?;
+    let (s, _) = crate::db::session::get(&state, &session_id).await?;
     Ok(s.cancel().await?)
+}
+
+#[tauri::command]
+pub async fn db_tx_state(state: State<'_, AppState>, session_id: String) -> CmdResult<crate::db::TxState> {
+    let (s, _) = crate::db::session::get(&state, &session_id).await?;
+    Ok(s.tx_state().await?)
+}
+
+// ---------- backup ----------
+
+/// Ask where to save, then write an encrypted backup there. Returns the path,
+/// or None when the user cancelled.
+#[tauri::command]
+pub async fn backup_export(app: AppHandle, state: State<'_, AppState>, passphrase: String, include_secrets: bool) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let backup = crate::backup::build(&state, include_secrets)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Save Shellport backup")
+        .set_file_name(crate::backup::default_name())
+        .add_filter("Shellport backup", &[crate::backup::EXTENSION])
+        .save_file(move |p| {
+            let _ = tx.send(p);
+        });
+    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
+    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let p2 = path.clone();
+    let pass = zeroize::Zeroizing::new(passphrase);
+    tokio::task::spawn_blocking(move || crate::backup::write(&p2, &pass, &backup)).await??;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Pick a backup file to restore (remembered as granted, like other picks).
+#[tauri::command]
+pub async fn backup_pick(app: AppHandle) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Restore Shellport backup")
+        .add_filter("Shellport backup", &[crate::backup::EXTENSION])
+        .pick_file(move |p| {
+            let _ = tx.send(p);
+        });
+    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
+    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    app.state::<AppState>().granted_files.lock().insert(std::fs::canonicalize(&path)?);
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+async fn read_backup(state: &AppState, path: &str, passphrase: String) -> anyhow::Result<crate::backup::Backup> {
+    let p = granted_path(state, std::path::Path::new(path), false)?;
+    let pass = zeroize::Zeroizing::new(passphrase);
+    tokio::task::spawn_blocking(move || crate::backup::read(&p, &pass)).await?
+}
+
+/// Decrypt a picked backup and say what restoring it would add.
+#[tauri::command]
+pub async fn backup_preview(state: State<'_, AppState>, path: String, passphrase: String) -> CmdResult<crate::backup::Summary> {
+    let b = read_backup(&state, &path, passphrase).await?;
+    Ok(crate::backup::summarize(&state, &b))
+}
+
+#[tauri::command]
+pub async fn backup_import(state: State<'_, AppState>, path: String, passphrase: String, replace_settings: bool) -> CmdResult<crate::backup::Restored> {
+    let b = read_backup(&state, &path, passphrase).await?;
+    let r = crate::backup::apply(&state, b, replace_settings, allowed_shell).map_err(crate::backup::friendly)?;
+    granted_path(&state, std::path::Path::new(&path), true).ok();
+    Ok(r)
 }
 
 // ---------- terminals ----------
@@ -386,8 +471,29 @@ pub fn term_open_local(app: AppHandle, cols: u16, rows: u16, cwd: Option<String>
 }
 
 #[tauri::command]
-pub async fn term_open_ssh(app: AppHandle, host_id: String, cols: u16, rows: u16, on_event: Channel<TermEvent>) -> CmdResult<String> {
-    Ok(term::open_ssh(app, host_id, cols, rows, None, on_event).await?)
+pub async fn term_open_ssh(app: AppHandle, host_id: String, cols: u16, rows: u16, session_key: Option<String>, on_event: Channel<TermEvent>) -> CmdResult<String> {
+    Ok(term::open_ssh(app, host_id, cols, rows, None, session_key, on_event).await?)
+}
+
+/// Pause or resume reading a terminal's output (the UI is behind on drawing).
+#[tauri::command]
+pub fn term_flow(app: AppHandle, id: String, paused: bool) {
+    if let Ok(t) = term::get(&app, &id) {
+        let _ = t.paused.send(paused);
+    }
+}
+
+/// End the tmux session behind a closed tab.
+#[tauri::command]
+pub async fn term_kill_tmux(app: AppHandle, host_id: String, session_key: String) -> CmdResult<()> {
+    Ok(term::kill_tmux(app, host_id, session_key).await?)
+}
+
+/// Check a pooled SSH connection still answers (after sleep or a network
+/// change). A dead one is dropped, so its terminals report `lost` at once.
+#[tauri::command]
+pub async fn ssh_probe(state: State<'_, AppState>, host_id: String) -> CmdResult<bool> {
+    Ok(crate::ssh::probe(&state, &host_id).await)
 }
 
 #[tauri::command]

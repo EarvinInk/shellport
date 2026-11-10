@@ -35,6 +35,9 @@ interface AppStore {
   /** Number of connected tabs per database profile id. */
   dbLive: Record<string, number>;
   dbLiveAdd: (id: string, delta: number) => void;
+  /** Number of tabs with an open transaction per database profile id. */
+  dbTx: Record<string, number>;
+  dbTxAdd: (id: string, delta: number) => void;
   secrets: SecretMeta[];
   vault: VaultStatus;
   settings: Settings | null;
@@ -72,6 +75,31 @@ interface AppStore {
 }
 
 let toastSeq = 1;
+
+function bump(m: Record<string, number>, id: string, delta: number): Record<string, number> {
+  const n = Math.max(0, (m[id] ?? 0) + delta);
+  const next = { ...m };
+  if (n) next[id] = n;
+  else delete next[id];
+  return next;
+}
+
+/**
+ * A tab can veto its own closing (e.g. an open database transaction). The
+ * guard asks the user and resolves true to go ahead.
+ */
+const closeGuards = new Map<string, () => Promise<boolean>>();
+export function setCloseGuard(tabId: string, guard: (() => Promise<boolean>) | null) {
+  if (guard) closeGuards.set(tabId, guard);
+  else closeGuards.delete(tabId);
+}
+
+/** Runs when the user closes a tab (not when it unmounts for other reasons). */
+const tabCloseHooks = new Map<string, () => void>();
+export function onTabClosed(tabId: string, hook: (() => void) | null) {
+  if (hook) tabCloseHooks.set(tabId, hook);
+  else tabCloseHooks.delete(tabId);
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export const useApp = create<AppStore>((set, get) => ({
@@ -81,14 +109,9 @@ export const useApp = create<AppStore>((set, get) => ({
   dbs: [],
   dbEditor: null,
   dbLive: {},
-  dbLiveAdd: (id, delta) =>
-    set((s) => {
-      const n = Math.max(0, (s.dbLive[id] ?? 0) + delta);
-      const dbLive = { ...s.dbLive };
-      if (n) dbLive[id] = n;
-      else delete dbLive[id];
-      return { dbLive };
-    }),
+  dbLiveAdd: (id, delta) => set((s) => ({ dbLive: bump(s.dbLive, id, delta) })),
+  dbTx: {},
+  dbTxAdd: (id, delta) => set((s) => ({ dbTx: bump(s.dbTx, id, delta) })),
   setDbEditor: (dbEditor) => set({ dbEditor }),
   refreshDbs: async () => {
     try {
@@ -162,14 +185,32 @@ export const useApp = create<AppStore>((set, get) => ({
     set((s) => ({ tabs: [...s.tabs, { ...t, id } as Tab], activeTab: id }));
     return id;
   },
-  closeTab: (id) =>
+  closeTab: (id) => {
+    const guard = closeGuards.get(id);
+    if (guard) {
+      guard().then((ok) => {
+        if (ok) {
+          closeGuards.delete(id);
+          get().closeTab(id);
+        }
+      });
+      return;
+    }
+    tabCloseHooks.get(id)?.();
+    tabCloseHooks.delete(id);
+    try {
+      localStorage.removeItem(`shellport.dbsql.tab.${id}`);
+    } catch {
+      /* storage unavailable */
+    }
     set((s) => {
       const idx = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       let activeTab = s.activeTab;
       if (activeTab === id) activeTab = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
       return { tabs, activeTab };
-    }),
+    });
+  },
   setActive: (id) => set({ activeTab: id }),
   renameTab: (id, title) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)) })),
   setSidebar: (sidebar) => set({ sidebar, sidebarCollapsed: false }),

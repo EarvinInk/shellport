@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// How carefully queries on a connection are treated.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Safety {
+    /// Run everything as typed.
+    Off,
+    /// Ask before UPDATE/DELETE without WHERE, DROP, TRUNCATE…
+    #[default]
+    Confirm,
+    /// The session refuses writes.
+    ReadOnly,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DbProfile {
@@ -29,6 +42,8 @@ pub struct DbProfile {
     pub via_host_id: Option<String>,
     #[serde(default)]
     pub ssl_mode: SslMode,
+    #[serde(default)]
+    pub safety: Safety,
     /// Engine-specific settings, so new engines need no schema change.
     #[serde(default)]
     pub options: BTreeMap<String, String>,
@@ -109,6 +124,25 @@ impl DbStore {
         self.save()
     }
 
+    pub fn has(&self, id: &str) -> bool {
+        self.dbs.iter().any(|d| d.id == id)
+    }
+
+    /// Add profiles from a backup, keeping their ids; existing ids are skipped.
+    pub fn merge(&mut self, dbs: Vec<DbProfile>) -> Result<usize> {
+        let mut n = 0;
+        for d in dbs {
+            if !self.has(&d.id) {
+                self.dbs.push(d);
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.save()?;
+        }
+        Ok(n)
+    }
+
     /// An SSH host was deleted: profiles that tunnelled through it now
     /// connect directly (the user sees this in the editor).
     pub fn host_deleted(&mut self, host_id: &str) -> Result<()> {
@@ -143,6 +177,7 @@ mod tests {
             password_secret_id: None,
             via_host_id: Some("h1".into()),
             ssl_mode: SslMode::Prefer,
+            safety: Safety::Confirm,
             options: BTreeMap::new(),
             color: None,
             tags: vec!["".into(), "prod".into()],
@@ -168,6 +203,7 @@ mod tests {
         let s3 = DbStore::load(path).unwrap();
         let d = s3.get("x").unwrap();
         assert_eq!(d.ssl_mode, SslMode::Prefer);
+        assert_eq!(d.safety, Safety::Confirm);
         assert!(d.via_host_id.is_none());
     }
 

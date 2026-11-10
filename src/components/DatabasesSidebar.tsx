@@ -63,6 +63,7 @@ function DbRow({ d }: { d: DbProfile }) {
   const { setDbEditor } = useApp();
   const via = useApp((s) => s.hosts.find((h) => h.id === d.viaHostId)?.name);
   const live = useApp((s) => s.dbLive[d.id] ?? 0);
+  const txOpen = useApp((s) => s.dbTx[d.id] ?? 0);
   const engine = DB_ENGINES[d.engine];
   return (
     <div
@@ -79,8 +80,8 @@ function DbRow({ d }: { d: DbProfile }) {
         <Database size={14} />
         {live > 0 && (
           <span
-            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-1 bg-ok"
-            title={`${live} open tab${live === 1 ? "" : "s"}`}
+            className={"absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-1 " + (txOpen ? "bg-warn" : "bg-ok")}
+            title={txOpen ? "Open transaction: commit or roll back in its tab" : `${live} open tab${live === 1 ? "" : "s"}`}
           />
         )}
       </div>

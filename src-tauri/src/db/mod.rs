@@ -14,6 +14,7 @@
 
 pub mod drivers;
 pub mod registry;
+pub mod risk;
 pub mod session;
 
 use anyhow::Result;
@@ -77,6 +78,8 @@ pub struct ConnectParams {
     pub ssl_mode: SslMode,
     /// Engine-specific settings from the profile (e.g. `application_name`).
     pub options: BTreeMap<String, String>,
+    /// Ask the server to refuse writes for this session.
+    pub read_only: bool,
 }
 
 /// A node in the lazily loaded schema tree. `path` identifies it when asking
@@ -130,12 +133,26 @@ pub struct StatementResult {
     pub truncated: bool,
 }
 
+/// Whether the session is inside an explicit transaction block.
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TxState {
+    #[default]
+    Idle,
+    /// `BEGIN` was run and not yet committed or rolled back.
+    Open,
+    /// A statement failed inside the transaction; only ROLLBACK works now.
+    Failed,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryOutput {
     pub results: Vec<StatementResult>,
     pub notices: Vec<String>,
     pub elapsed_ms: u64,
+    /// Transaction state after the query ran.
+    pub tx: TxState,
 }
 
 #[async_trait]
@@ -154,7 +171,15 @@ pub trait DbSession: Send + Sync {
     /// Ask the server to stop the running query.
     async fn cancel(&self) -> Result<()>;
     async fn close(&self);
+    /// The connection to the server is gone (network drop, server restart).
+    fn is_closed(&self) -> bool;
+    /// Current transaction state (see [`TxState`]).
+    async fn tx_state(&self) -> Result<TxState>;
 }
+
+/// Prefix of the error returned when a session's connection has dropped;
+/// the UI matches on it to offer a reconnect.
+pub const CONNECTION_LOST: &str = "connection lost";
 
 /// Quote an SQL identifier with double quotes (Postgres and the SQL standard).
 pub fn quote_ident(s: &str) -> String {

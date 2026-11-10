@@ -177,6 +177,8 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
             forwards: vec![],
             keepalive_secs: None,
             startup_command: None,
+            on_disconnect: Default::default(),
+            tmux_session: false,
         })
         .collect();
     // Resolve ProxyJump (first hop only; `user@host:port` forms match by alias).

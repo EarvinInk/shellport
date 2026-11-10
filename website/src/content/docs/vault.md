@@ -24,3 +24,9 @@ The vault **locks automatically** after a period of inactivity. Change the timeo
 Optionally store the vault key in your **login keyring** (GNOME Keyring / KWallet) so it unlocks when you log in.
 
 > Any program running as you can read the keyring while it's unlocked, so leave this off on shared machines.
+
+## Backup & restore
+
+In **Settings → Backup & restore** you can save everything to one encrypted file: hosts, database connections and settings, plus vault secrets if you tick **Include vault secrets**. The file is protected by a passphrase you choose (Argon2id + XChaCha20-Poly1305, like the vault), separate from your master password.
+
+To restore, choose the file, enter its passphrase and click **Check** to see what would be added. Restoring only adds items you don't have yet; existing ones are kept as they are. To restore secrets, create or unlock the vault first. Tick **Also replace my settings** to take the backup's settings too.

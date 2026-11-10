@@ -72,6 +72,7 @@ pub async fn open(app: &AppHandle, db: &DbProfile, session_id: &str) -> Result<(
         password,
         ssl_mode: db.ssl_mode,
         options: db.options.clone(),
+        read_only: db.safety == crate::store::databases::Safety::ReadOnly,
     };
     match registry::driver(db.engine).connect(params).await {
         Ok(s) => Ok((s, tunnel)),
@@ -90,6 +91,7 @@ pub struct OpenDb {
     pub session: Arc<dyn DbSession>,
     pub profile_id: String,
     pub tunnel_task: Option<String>,
+    pub safety: crate::store::databases::Safety,
 }
 
 pub async fn close(state: &AppState, session_id: &str) {
@@ -102,14 +104,29 @@ pub async fn close(state: &AppState, session_id: &str) {
     }
 }
 
-pub async fn get(state: &AppState, session_id: &str) -> Result<Arc<dyn DbSession>> {
-    state
+/// A live session, or a `connection lost` error the UI offers to reconnect.
+pub async fn get(state: &AppState, session_id: &str) -> Result<(Arc<dyn DbSession>, crate::store::databases::Safety)> {
+    let s = state
         .db_sessions
         .lock()
         .await
         .get(session_id)
-        .map(|o| o.session.clone())
-        .ok_or_else(|| anyhow!("database session closed; reconnect"))
+        .map(|o| (o.session.clone(), o.safety))
+        .ok_or_else(|| anyhow!("{}: the session was closed", super::CONNECTION_LOST))?;
+    if s.0.is_closed() {
+        return Err(anyhow!("{}: the server closed the connection or the network dropped", super::CONNECTION_LOST));
+    }
+    Ok(s)
+}
+
+/// Turn a driver error into `connection lost` when the connection died
+/// during the call, so the UI can offer to reconnect.
+pub fn map_lost(session: &dyn DbSession, e: anyhow::Error) -> anyhow::Error {
+    if session.is_closed() {
+        anyhow!("{}: {e:#}", super::CONNECTION_LOST)
+    } else {
+        e
+    }
 }
 
 #[cfg(test)]

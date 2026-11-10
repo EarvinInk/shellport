@@ -489,6 +489,20 @@ pub async fn disconnect(state: &AppState, host_id: &str) {
     }
 }
 
+/// Ping a pooled connection; drop it if it doesn't answer within 5 seconds.
+/// Returns false when the connection was dead (or is now dropped).
+pub async fn probe(state: &AppState, host_id: &str) -> bool {
+    let conn = state.conns.lock().await.get(host_id).cloned();
+    let Some(c) = conn else { return true };
+    let alive = !c.is_closed() && matches!(tokio::time::timeout(Duration::from_secs(5), c.handle.send_ping()).await, Ok(Ok(())));
+    if !alive {
+        log::info!("ssh connection to {} is not answering; dropping it", c.host.name);
+        drop(c);
+        disconnect(state, host_id).await;
+    }
+    alive
+}
+
 /// Accept loop shared by saved port forwards and ad-hoc tunnels (databases):
 /// every connection accepted on `listener` is relayed to `rhost:rport` through
 /// the host's pooled SSH connection, reconnecting transparently if it dropped.

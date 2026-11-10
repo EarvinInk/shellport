@@ -19,17 +19,19 @@ import {
   Play,
   RefreshCw,
   Search,
+  ShieldAlert,
   Square,
   Table2,
   Unplug,
   X,
 } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton, Modal, Select, TextArea } from "../components/ui";
 import { DB_ENGINES } from "../lib/dbEngines";
 import { api, errMsg } from "../lib/ipc";
-import type { Cell, DbConnected, QueryOutput, SchemaNode, StatementResult } from "../lib/types";
-import { useApp } from "../store";
+import type { Cell, DbConnected, QueryOutput, QueryRisk, SchemaNode, StatementResult, TxState } from "../lib/types";
+import { setCloseGuard, useApp } from "../store";
 
 const ROW_LIMITS = [100, 1000, 5000, 20000];
 
@@ -84,9 +86,9 @@ interface MenuState {
   node: SchemaNode;
 }
 
-export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
+export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; active: boolean }) {
   const profile = useApp((s) => s.dbs.find((d) => d.id === dbId));
-  const { error, toast, setDbEditor, setUnlockPrompt, dbLiveAdd } = useApp.getState();
+  const { error, toast, setDbEditor, setUnlockPrompt, dbLiveAdd, dbTxAdd } = useApp.getState();
   const vaultUnlocked = useApp((s) => s.vault.unlocked);
   const [conn, setConn] = useState<DbConnected | null>(null);
   const [connErr, setConnErr] = useState<string | null>(null);
@@ -96,7 +98,14 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
   const genRef = useRef(0);
   const engine = profile ? DB_ENGINES[profile.engine] : undefined;
 
-  const [sql, setSql] = useState(() => readStr(`shellport.dbsql.${dbId}`) ?? engine?.sampleQuery ?? "");
+  // Each tab keeps its own draft; older versions kept one per database.
+  const draftKey = `shellport.dbsql.tab.${tabId}`;
+  const [sql, setSql] = useState(() => readStr(draftKey) ?? readStr(`shellport.dbsql.${dbId}`) ?? engine?.sampleQuery ?? "");
+  const [tx, setTx] = useState<TxState>("idle");
+  const [confirm, setConfirm] = useState<{ sql: string; risks: QueryRisk[] } | null>(null);
+  /** Shown after an automatic reconnect: the last query did not run again. */
+  const [lostNotice, setLostNotice] = useState<string | null>(null);
+  const autoReconnectedRef = useRef(false);
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<QueryOutput | null>(null);
   const [queryErr, setQueryErr] = useState<string | null>(null);
@@ -106,6 +115,7 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Layout: tree width/visibility and editor height, remembered for all DB tabs.
   const [treeOpen, setTreeOpen] = useState(() => readStr("shellport.db.treeOpen") !== "0");
@@ -174,15 +184,54 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
   }, [vaultUnlocked]);
 
   useEffect(() => {
-    const t = setTimeout(() => writeStr(`shellport.dbsql.${dbId}`, sql), 500);
+    const t = setTimeout(() => writeStr(draftKey, sql), 500);
     return () => clearTimeout(t);
-  }, [dbId, sql]);
+  }, [draftKey, sql]);
 
   useEffect(() => {
     if (active && conn) editorRef.current?.focus();
   }, [active, conn]);
 
-  const run = async (text?: string) => {
+  // Open transactions: count them for the sidebar and guard closing the tab.
+  useEffect(() => {
+    if (tx === "idle") return;
+    dbTxAdd(dbId, 1);
+    setCloseGuard(tabId, () =>
+      ask("This tab has an open transaction. Closing it rolls back the uncommitted changes.", {
+        title: "Close and roll back?",
+        kind: "warning",
+        okLabel: "Close and roll back",
+        cancelLabel: "Keep tab open",
+      }),
+    );
+    return () => {
+      dbTxAdd(dbId, -1);
+      setCloseGuard(tabId, null);
+    };
+  }, [tx, dbId, tabId, dbTxAdd]);
+
+  /** Reconnect, asking first when that would roll back an open transaction. */
+  const reconnect = async () => {
+    if (tx !== "idle" && !(await ask("Reconnecting rolls back the open transaction.", { title: "Reconnect?", kind: "warning", okLabel: "Reconnect" }))) return;
+    setTx("idle");
+    setLostNotice(null);
+    connect();
+  };
+
+  /** Finish the open transaction without touching the results on screen. */
+  const endTx = async (verb: "COMMIT" | "ROLLBACK") => {
+    if (!conn) return;
+    try {
+      const out = await api.dbQuery(conn.sessionId, verb, 1, true);
+      if (out.kind === "done") setTx(out.output.tx);
+      toast(verb === "COMMIT" ? "Transaction committed" : "Transaction rolled back", verb === "COMMIT" ? "success" : "info");
+    } catch (e) {
+      error(e);
+      api.dbTxState(conn.sessionId).then(setTx).catch(() => {});
+    }
+  };
+
+  const run = async (text?: string, confirmed = false) => {
     if (!conn || running) return;
     const el = editorRef.current;
     const selected = el && el.selectionStart !== el.selectionEnd ? el.value.slice(el.selectionStart, el.selectionEnd) : "";
@@ -190,20 +239,39 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
     if (!toRun) return;
     setRunning(true);
     setQueryErr(null);
+    setLostNotice(null);
     try {
-      const out = await api.dbQuery(conn.sessionId, toRun, rowLimit);
+      const res = await api.dbQuery(conn.sessionId, toRun, rowLimit, confirmed);
+      if (res.kind === "needsConfirmation") {
+        setConfirm({ sql: toRun, risks: res.risks });
+        return;
+      }
+      const out = res.output;
+      autoReconnectedRef.current = false;
       setOutput(out);
+      setTx(out.tx);
       // Show the last statement that returned rows, else the last one.
       const withRows = out.results.map((r, i) => (r.columns.length ? i : -1)).filter((i) => i >= 0);
       setResultIdx(withRows.length ? withRows[withRows.length - 1] : Math.max(0, out.results.length - 1));
     } catch (e) {
       const msg = errMsg(e);
-      setQueryErr(msg);
       setOutput(null);
-      if (/session closed/i.test(msg)) {
-        setConn(null);
-        setLive(false);
-        setConnErr(msg);
+      if (/^connection lost/i.test(msg)) {
+        // The server or network went away. Reconnect once on our own, but
+        // never re-run the query: it may have been a write.
+        setTx("idle");
+        if (!autoReconnectedRef.current) {
+          autoReconnectedRef.current = true;
+          setLostNotice(toRun);
+          connect();
+        } else {
+          setConn(null);
+          setLive(false);
+          setConnErr(msg);
+        }
+      } else {
+        setQueryErr(msg);
+        api.dbTxState(conn.sessionId).then(setTx).catch(() => {});
       }
     } finally {
       setRunning(false);
@@ -262,7 +330,7 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
               <div className="min-w-0 flex-1 truncate text-xs font-medium" title={conn?.serverVersion}>
                 {profile.database || profile.username || profile.name}
               </div>
-              <IconButton title="Reconnect" onClick={connect} disabled={connecting}>
+              <IconButton title="Reconnect" onClick={reconnect} disabled={connecting}>
                 <RefreshCw size={13} className={clsx(connecting && "animate-spin")} />
               </IconButton>
               <IconButton title="Hide schema" onClick={() => setTreeOpen(false)}>
@@ -321,7 +389,10 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
 
       {/* Editor + results */}
       <div ref={mainRef} className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
+        <div
+          className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2"
+          style={profile.color ? { boxShadow: `inset 0 2px 0 ${profile.color}` } : undefined}
+        >
           {!treeOpen && (
             <IconButton title="Show schema" onClick={() => setTreeOpen(true)}>
               <PanelLeftOpen size={14} />
@@ -343,7 +414,31 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
               ))}
             </Select>
           </label>
+          {tx !== "idle" && conn && (
+            <div
+              className={clsx(
+                "flex shrink-0 items-center gap-1 rounded-md border py-0.5 pl-2 pr-0.5 text-xs",
+                tx === "failed" ? "border-danger/40 bg-danger/10 text-danger" : "border-warn/40 bg-warn/10 text-warn",
+              )}
+              role="status"
+            >
+              {tx === "failed" ? "Transaction failed: roll back to continue" : "Transaction open"}
+              {tx === "open" && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => endTx("COMMIT")}>
+                  Commit
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => endTx("ROLLBACK")}>
+                Rollback
+              </Button>
+            </div>
+          )}
           <div className="flex-1" />
+          {conn?.safety === "read-only" && (
+            <span className="flex shrink-0 items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-[11px] text-fg-muted" title="This connection refuses writes">
+              <Lock size={11} /> Read-only
+            </span>
+          )}
           <span className={clsx("flex min-w-0 items-center gap-1.5 truncate text-xs", conn ? "text-fg-subtle" : "text-fg-muted")}>
             <span className={clsx("h-2 w-2 shrink-0 rounded-full", conn ? "bg-ok" : connecting ? "bg-warn" : "bg-fg-subtle")} />
             <span className="truncate">{conn ? conn.serverVersion : connecting ? "Connecting…" : "Not connected"}</span>
@@ -423,14 +518,30 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
                   ))}
                 </div>
               )}
-              <div className="min-h-0 flex-1 overflow-auto">
+              {lostNotice && (
+                <div className="flex shrink-0 items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-xs text-warn" role="status">
+                  <RefreshCw size={12} className={clsx(connecting && "animate-spin")} />
+                  <span className="flex-1">
+                    {connecting ? "Connection lost. Reconnecting…" : "The connection dropped and was re-established. Your last query was not run again."}
+                  </span>
+                  {!connecting && conn && (
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => run(lostNotice)}>
+                      Run again
+                    </Button>
+                  )}
+                  <IconButton title="Dismiss" className="h-6 w-6" onClick={() => setLostNotice(null)}>
+                    <X size={12} />
+                  </IconButton>
+                </div>
+              )}
+              <div ref={resultsRef} className="min-h-0 flex-1 overflow-auto">
                 {running && !output && (
                   <div className="flex h-full items-center justify-center gap-2 text-sm text-fg-subtle">
                     <Loader2 size={14} className="animate-spin" /> Running…
                   </div>
                 )}
                 {queryErr && <pre className="m-3 whitespace-pre-wrap break-words rounded-md border border-danger/30 bg-danger/10 p-3 font-mono text-xs text-danger">{queryErr}</pre>}
-                {current && <ResultGrid key={`${resultIdx}:${output?.elapsedMs}`} r={current} />}
+                {current && <ResultGrid key={`${resultIdx}:${output?.elapsedMs}`} r={current} scrollRef={resultsRef} />}
                 {!output && !queryErr && !running && conn && (
                   <Empty icon={<Play size={28} />} title="Run a query">
                     <span className="block">
@@ -445,6 +556,45 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
           </>
         )}
       </div>
+
+      {confirm && (
+        <Modal
+          title="Run risky statements?"
+          onClose={() => setConfirm(null)}
+          width="max-w-2xl"
+          footer={
+            <>
+              <span className="mr-auto text-xs text-fg-subtle">Safety level: Confirm risky. Change it in the connection settings.</span>
+              <Button onClick={() => setConfirm(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                autoFocus
+                onClick={() => {
+                  const c = confirm;
+                  setConfirm(null);
+                  run(c.sql, true);
+                }}
+              >
+                Run anyway
+              </Button>
+            </>
+          }
+        >
+          <p className="mb-3 text-sm text-fg-muted">
+            On <span className="font-medium text-fg">{profile.name}</span>:
+          </p>
+          <ul className="space-y-2">
+            {confirm.risks.map((r, i) => (
+              <li key={i} className="rounded-md border border-danger/30 bg-danger/5 p-3">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-danger">
+                  <ShieldAlert size={14} /> {r.reason}
+                </div>
+                <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-xs text-fg-muted">{r.statement}</pre>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
 
       {menu && (
         <ContextMenu
@@ -466,6 +616,10 @@ export function DbView({ dbId, active }: { dbId: string; active: boolean }) {
       )}
     </div>
   );
+}
+
+function plural(n: number, word: string) {
+  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
@@ -594,7 +748,7 @@ function StatusBar({ out, r, running }: { out: QueryOutput; r?: StatementResult;
   return (
     <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border bg-surface-1 px-3 text-xs text-fg-muted">
       {running && <Loader2 size={12} className="animate-spin" />}
-      {r && (r.columns.length ? <span>{r.rows.length.toLocaleString()} rows</span> : <span>{(r.rowsAffected ?? 0).toLocaleString()} rows affected</span>)}
+      {r && (r.columns.length ? <span>{plural(r.rows.length, "row")}</span> : <span>{plural(r.rowsAffected ?? 0, "row")} affected</span>)}
       {r?.truncated && <span className="text-warn">Stopped at the row limit; more rows exist</span>}
       <span>{out.elapsedMs} ms</span>
       {out.notices.length > 0 && (
@@ -652,15 +806,63 @@ function compareCells(a: Cell, b: Cell, numeric: boolean): number {
   return cellText(a).localeCompare(cellText(b), undefined, { numeric: true });
 }
 
-function ResultGrid({ r }: { r: StatementResult }) {
+/** Text that reads as a number (for results that arrive untyped, e.g. behind a pooler). */
+const NUMBER_TEXT = /^-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+/** Rows drawn beyond the visible area on each side. */
+const OVERSCAN = 30;
+
+function ResultGrid({ r, scrollRef }: { r: StatementResult; scrollRef: React.RefObject<HTMLDivElement | null> }) {
   const toast = useApp((s) => s.toast);
   const [sel, setSel] = useState<[number, number] | null>(null);
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null);
   const [widths, setWidths] = useState<Record<number, number>>({});
   const [viewing, setViewing] = useState<{ row: number; col: number } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+  const theadRef = useRef<HTMLTableSectionElement>(null);
+  // Only the rows in view are drawn; spacers stand in for the rest.
+  const [view, setView] = useState({ top: 0, height: 800 });
+  const [rowH, setRowH] = useState(22);
 
-  const numeric = useMemo(() => r.columns.map((c, i) => NUMERIC_TYPE.test(c.typeName) || r.rows.some((row) => row[i]?.t === "int" || row[i]?.t === "float")), [r]);
+  const numeric = useMemo(
+    () =>
+      r.columns.map((c, i) => {
+        if (NUMERIC_TYPE.test(c.typeName) || r.rows.some((row) => row[i]?.t === "int" || row[i]?.t === "float")) return true;
+        if (c.typeName) return false;
+        const sample = r.rows.slice(0, 200).map((row) => row[i]).filter((x) => x && x.t !== "null");
+        return sample.length > 0 && sample.every((x) => x.t === "text" && NUMBER_TEXT.test(x.v));
+      }),
+    [r],
+  );
+  /** Starting column widths from the header and a sample of rows, so columns don't jump while scrolling. */
+  const autoCh = useMemo(
+    () =>
+      r.columns.map((c, i) => {
+        let w = c.name.length + (c.typeName ? c.typeName.length + 2 : 0) + 3;
+        for (const row of r.rows.slice(0, 300)) w = Math.max(w, cellText(row[i]).length + 2);
+        return clamp(w, 5, 50);
+      }),
+    [r],
+  );
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setView({ top: el.scrollTop, height: el.clientHeight });
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [scrollRef]);
+
+  // Measure the real row height once rows are on screen.
+  useLayoutEffect(() => {
+    const tr = tableRef.current?.querySelector<HTMLElement>("tr[data-row]");
+    if (tr && tr.offsetHeight && tr.offsetHeight !== rowH) setRowH(tr.offsetHeight);
+  });
   /** Display order → row index. */
   const order = useMemo(() => {
     const idx = r.rows.map((_, i) => i);
@@ -668,15 +870,25 @@ function ResultGrid({ r }: { r: StatementResult }) {
     return idx;
   }, [r, sort, numeric]);
 
+  // Keep the selected cell in view: rows by scroll position (they may not be
+  // drawn yet), columns by the browser once the row is drawn.
   useEffect(() => {
-    if (!sel) return;
-    tableRef.current?.querySelector(`[data-cell="${sel[0]}:${sel[1]}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [sel]);
+    const el = scrollRef.current;
+    if (!sel || !el) return;
+    const headH = theadRef.current?.offsetHeight ?? 26;
+    const top = sel[0] * rowH;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + rowH + headH > el.scrollTop + el.clientHeight) el.scrollTop = top + rowH + headH - el.clientHeight;
+    requestAnimationFrame(() => tableRef.current?.querySelector(`[data-cell="${sel[0]}:${sel[1]}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  }, [sel, rowH, scrollRef]);
 
-  if (!r.columns.length) return <Empty title="Statement done">{(r.rowsAffected ?? 0).toLocaleString()} rows affected</Empty>;
+  if (!r.columns.length) return <Empty title="Statement done">{plural(r.rowsAffected ?? 0, "row")} affected</Empty>;
 
   const cellAt = (dr: number, c: number) => r.rows[order[dr]][c];
-  const widthStyle = (i: number) => (widths[i] ? { width: widths[i], minWidth: widths[i], maxWidth: widths[i] } : undefined);
+  const widthStyle = (i: number) => (widths[i] ? { width: widths[i], minWidth: widths[i], maxWidth: widths[i] } : { minWidth: `${autoCh[i]}ch` });
+  const headH = theadRef.current?.offsetHeight ?? 26;
+  const first = Math.max(0, Math.floor((view.top - headH) / rowH) - OVERSCAN);
+  const last = Math.min(order.length, Math.ceil((view.top + view.height) / rowH) + OVERSCAN);
 
   return (
     <>
@@ -710,7 +922,7 @@ function ResultGrid({ r }: { r: StatementResult }) {
           }
         }}
       >
-        <thead className="sticky top-0 z-10">
+        <thead ref={theadRef} className="sticky top-0 z-10">
           <tr>
             <th className="border-b border-r border-border bg-surface-2 px-2 py-1 text-right font-normal text-fg-subtle">#</th>
             {r.columns.map((c, i) => (
@@ -746,8 +958,11 @@ function ResultGrid({ r }: { r: StatementResult }) {
           </tr>
         </thead>
         <tbody>
-          {order.map((ri, dr) => (
-            <tr key={ri} className="hover:bg-surface-2">
+          {first > 0 && <tr aria-hidden style={{ height: first * rowH }} />}
+          {order.slice(first, last).map((ri, k) => {
+            const dr = first + k;
+            return (
+            <tr key={ri} data-row className="hover:bg-surface-2">
               <td className="border-b border-r border-border px-2 py-0.5 text-right text-fg-subtle">{dr + 1}</td>
               {r.rows[ri].map((c, ci) => (
                 <td
@@ -768,7 +983,9 @@ function ResultGrid({ r }: { r: StatementResult }) {
                 </td>
               ))}
             </tr>
-          ))}
+            );
+          })}
+          {last < order.length && <tr aria-hidden style={{ height: (order.length - last) * rowH }} />}
         </tbody>
       </table>
       {viewing && (

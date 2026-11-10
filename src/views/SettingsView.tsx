@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BackupSection } from "../components/BackupSection";
 import { THEMES } from "../components/TerminalView";
 import { Button, Checkbox, Field, Input, Select } from "../components/ui";
 import type { Settings } from "../lib/types";
@@ -67,6 +68,9 @@ export function SettingsView() {
         <Button variant="primary" onClick={() => saveSettings(s)}>
           Save settings
         </Button>
+        <div className="border-t border-border pt-8">
+          <BackupSection />
+        </div>
       </div>
     </div>
   );

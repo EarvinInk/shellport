@@ -182,9 +182,9 @@ fn derive_key(password: &str, salt: &[u8; 16], p: KdfParams) -> Result<Zeroizing
     Ok(key)
 }
 
-fn header(params: KdfParams, salt: &[u8; 16], nonce: &[u8; 24]) -> Vec<u8> {
+fn header(magic: &[u8; 4], params: KdfParams, salt: &[u8; 16], nonce: &[u8; 24]) -> Vec<u8> {
     let mut h = Vec::with_capacity(HEADER_LEN);
-    h.extend_from_slice(MAGIC);
+    h.extend_from_slice(magic);
     h.extend_from_slice(&params.m_cost.to_le_bytes());
     h.extend_from_slice(&params.t_cost.to_le_bytes());
     h.extend_from_slice(&params.p_cost.to_le_bytes());
@@ -201,9 +201,9 @@ struct ParsedFile<'a> {
     ciphertext: &'a [u8],
 }
 
-fn parse_file(bytes: &[u8]) -> Result<ParsedFile<'_>> {
-    if bytes.len() < HEADER_LEN + 16 || &bytes[..4] != MAGIC {
-        bail!("not a Shellport vault file");
+fn parse_file<'a>(magic: &[u8; 4], bytes: &'a [u8]) -> Result<ParsedFile<'a>> {
+    if bytes.len() < HEADER_LEN + 16 || &bytes[..4] != magic {
+        bail!("not a Shellport {} file", if magic == MAGIC { "vault" } else { "backup" });
     }
     let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
     let params = KdfParams { m_cost: u(4), t_cost: u(8), p_cost: u(12) };
@@ -213,6 +213,34 @@ fn parse_file(bytes: &[u8]) -> Result<ParsedFile<'_>> {
     let mut nonce = [0u8; 24];
     nonce.copy_from_slice(&bytes[32..56]);
     Ok(ParsedFile { params, salt, nonce, header: &bytes[..HEADER_LEN], ciphertext: &bytes[HEADER_LEN..] })
+}
+
+/// Encrypt `plain` under a password, in the vault's format but with another
+/// file tag (`magic`), e.g. for backups.
+pub fn seal(magic: &[u8; 4], password: &str, plain: &[u8]) -> Result<Vec<u8>> {
+    let params = KdfParams::default();
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+    let mut nonce = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    let key = derive_key(password, &salt, params)?;
+    let hdr = header(magic, params, &salt, &nonce);
+    let ct = XChaCha20Poly1305::new(key.as_ref().into())
+        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plain, aad: &hdr })
+        .map_err(|_| anyhow!("encryption failed"))?;
+    let mut out = hdr;
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Decrypt a file made by [`seal`].
+pub fn open_sealed(magic: &[u8; 4], password: &str, bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    let f = parse_file(magic, bytes)?;
+    let key = derive_key(password, &f.salt, f.params)?;
+    let plain = XChaCha20Poly1305::new(key.as_ref().into())
+        .decrypt(XNonce::from_slice(&f.nonce), Payload { msg: f.ciphertext, aad: f.header })
+        .map_err(|_| anyhow!("wrong passphrase, or the file is damaged"))?;
+    Ok(Zeroizing::new(plain))
 }
 
 impl Vault {
@@ -266,7 +294,7 @@ impl Vault {
     /// optionally persist it in the system keyring.
     pub fn unlock(&mut self, password: &str) -> Result<Zeroizing<[u8; 32]>> {
         let bytes = std::fs::read(&self.path).context("reading vault")?;
-        let f = parse_file(&bytes)?;
+        let f = parse_file(MAGIC, &bytes)?;
         let key = derive_key(password, &f.salt, f.params)?;
         self.open_with_key(&bytes, key.clone())?;
         Ok(key)
@@ -279,7 +307,7 @@ impl Vault {
     }
 
     fn open_with_key(&mut self, bytes: &[u8], key: Zeroizing<[u8; 32]>) -> Result<()> {
-        let f = parse_file(bytes)?;
+        let f = parse_file(MAGIC, bytes)?;
         let cipher = XChaCha20Poly1305::new(key.as_ref().into());
         let plain = Zeroizing::new(
             cipher
@@ -306,7 +334,7 @@ impl Vault {
         let plain = to_json_zeroizing(data)?;
         let mut nonce = [0u8; 24];
         rand::thread_rng().fill_bytes(&mut nonce);
-        let hdr = header(self.params, &self.salt, &nonce);
+        let hdr = header(MAGIC, self.params, &self.salt, &nonce);
         let cipher = XChaCha20Poly1305::new(key.as_ref().into());
         let ct = cipher
             .encrypt(XNonce::from_slice(&nonce), Payload { msg: &plain, aad: &hdr })
@@ -390,6 +418,32 @@ impl Vault {
         Ok(meta)
     }
 
+    /// Every secret, values included (for an encrypted backup).
+    pub fn export_secrets(&self) -> Result<Vec<Secret>> {
+        Ok(self.data()?.secrets.clone())
+    }
+
+    /// Add secrets whose ids aren't in the vault yet; returns how many.
+    pub fn import_secrets(&mut self, secrets: Vec<Secret>) -> Result<usize> {
+        let data = self.data_mut()?;
+        let mut n = 0;
+        for s in secrets {
+            if !data.secrets.iter().any(|e| e.id == s.id) {
+                data.secrets.push(s);
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.save()?;
+        }
+        self.touch();
+        Ok(n)
+    }
+
+    pub fn has_secret(&self, id: &str) -> bool {
+        self.data.as_ref().is_some_and(|d| d.secrets.iter().any(|s| s.id == id))
+    }
+
     pub fn delete(&mut self, id: &str) -> Result<()> {
         let data = self.data_mut()?;
         let before = data.secrets.len();
@@ -408,7 +462,7 @@ impl Vault {
             bail!("master password must be at least 8 characters");
         }
         let bytes = std::fs::read(&self.path)?;
-        let f = parse_file(&bytes)?;
+        let f = parse_file(MAGIC, &bytes)?;
         let old_key = derive_key(old, &f.salt, f.params)?;
         if self.key.as_deref() != Some(&*old_key) {
             bail!("current master password is incorrect");

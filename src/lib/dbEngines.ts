@@ -4,6 +4,8 @@ import type { DbEngine, SslMode } from "./types";
 export interface EngineField {
   key: string;
   label: string;
+  /** "text" (default) or "checkbox" (stored as "1" when ticked). */
+  type?: "text" | "checkbox";
   placeholder?: string;
   hint?: string;
 }
@@ -34,7 +36,15 @@ export const DB_ENGINES: Record<DbEngine, EngineUi> = {
     databasePlaceholder: "same as user",
     usernamePlaceholder: "postgres",
     sslModes: ["disable", "prefer", "require", "verify-full"],
-    extraFields: [{ key: "application_name", label: "Application name", placeholder: "Shellport", hint: "Shown in pg_stat_activity" }],
+    extraFields: [
+      { key: "application_name", label: "Application name", placeholder: "Shellport", hint: "Shown in pg_stat_activity" },
+      {
+        key: "pooler",
+        label: "Behind a connection pooler (transaction mode)",
+        type: "checkbox",
+        hint: "For PgBouncer or Supabase's pooler on port 6543. Avoids prepared statements; values then show as text. Shellport also switches automatically if it detects one.",
+      },
+    ],
     sampleQuery: "SELECT now(), current_user, version();",
   },
 };

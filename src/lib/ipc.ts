@@ -1,10 +1,13 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  BackupRestored,
+  BackupSummary,
   ContainerInfo,
   DbConnected,
   DbProfile,
   EngineInfo,
-  QueryOutput,
+  QueryOutcome,
+  TxState,
   SchemaNode,
   DockerAction,
   EndpointInfo,
@@ -69,14 +72,25 @@ export const api = {
   dbConnect: (id: string) => invoke<DbConnected>("db_connect", { id }),
   dbDisconnect: (sessionId: string) => invoke<void>("db_disconnect", { sessionId }),
   dbChildren: (sessionId: string, path: string[]) => invoke<SchemaNode[]>("db_children", { sessionId, path }),
-  dbQuery: (sessionId: string, sql: string, rowLimit: number) => invoke<QueryOutput>("db_query", { sessionId, sql, rowLimit }),
+  dbQuery: (sessionId: string, sql: string, rowLimit: number, confirmed = false) => invoke<QueryOutcome>("db_query", { sessionId, sql, rowLimit, confirmed }),
+  dbTxState: (sessionId: string) => invoke<TxState>("db_tx_state", { sessionId }),
   dbCancel: (sessionId: string) => invoke<void>("db_cancel", { sessionId }),
+
+  // backup
+  backupExport: (passphrase: string, includeSecrets: boolean) => invoke<string | null>("backup_export", { passphrase, includeSecrets }),
+  backupPick: () => invoke<string | null>("backup_pick"),
+  backupPreview: (path: string, passphrase: string) => invoke<BackupSummary>("backup_preview", { path, passphrase }),
+  backupImport: (path: string, passphrase: string, replaceSettings: boolean) =>
+    invoke<BackupRestored>("backup_import", { path, passphrase, replaceSettings }),
 
   // terminals
   termOpenLocal: (cols: number, rows: number, onEvent: Channel<TermEvent>, cwd?: string) =>
     invoke<string>("term_open_local", { cols, rows, cwd, onEvent }),
-  termOpenSsh: (hostId: string, cols: number, rows: number, onEvent: Channel<TermEvent>) =>
-    invoke<string>("term_open_ssh", { hostId, cols, rows, onEvent }),
+  termOpenSsh: (hostId: string, cols: number, rows: number, onEvent: Channel<TermEvent>, sessionKey?: string) =>
+    invoke<string>("term_open_ssh", { hostId, cols, rows, sessionKey, onEvent }),
+  termFlow: (id: string, paused: boolean) => invoke<void>("term_flow", { id, paused }),
+  termKillTmux: (hostId: string, sessionKey: string) => invoke<void>("term_kill_tmux", { hostId, sessionKey }),
+  sshProbe: (hostId: string) => invoke<boolean>("ssh_probe", { hostId }),
   termWrite: (id: string, data: string) => invoke<void>("term_write", { id, data }),
   termWriteB64: (id: string, data: string) => invoke<void>("term_write_b64", { id, data }),
   termResize: (id: string, cols: number, rows: number) => invoke<void>("term_resize", { id, cols, rows }),

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/ipc";
 import type { AuthMethod, Host, PortForward, SecretKind } from "../lib/types";
 import { useApp } from "../store";
-import { Button, Field, IconButton, Input, Modal, Select } from "./ui";
+import { Button, Checkbox, Field, IconButton, Input, Modal, Select } from "./ui";
 
 const blank = (): Host => ({
   id: "",
@@ -21,6 +21,8 @@ const blank = (): Host => ({
   forwards: [],
   keepaliveSecs: null,
   startupCommand: null,
+  onDisconnect: "reconnect",
+  tmuxSession: false,
 });
 
 const COLORS = ["", "#8b5cf6", "#3b82f6", "#14b8a6", "#f43f5e", "#f59e0b", "#22c55e"];
@@ -308,6 +310,19 @@ export function HostEditor() {
             <Field label="Keepalive (s)">
               <Input type="number" value={h.keepaliveSecs ?? 30} onChange={(e) => set("keepaliveSecs", Number(e.target.value) || null)} />
             </Field>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <Field label="When the connection drops" hint="Sleep, Wi-Fi changes and server restarts">
+              <Select value={h.onDisconnect ?? "reconnect"} onChange={(e) => set("onDisconnect", e.target.value as Host["onDisconnect"])}>
+                <option value="reconnect">Reconnect automatically</option>
+                <option value="ask">Ask before reconnecting</option>
+                <option value="close">Close the tab</option>
+              </Select>
+            </Field>
+            <div className="flex flex-col justify-center gap-1.5 pt-5">
+              <Checkbox label="Keep sessions alive with tmux" checked={!!h.tmuxSession} onChange={(v) => set("tmuxSession", v)} />
+              <span className="pl-6 text-xs text-fg-subtle">Programs keep running if the connection drops, and reconnecting picks up where you left off. Needs tmux on the server.</span>
+            </div>
           </div>
           <Field label="Remote Docker socket" className="mt-4">
             <Input value={h.dockerSocket ?? ""} onChange={(e) => set("dockerSocket", e.target.value || null)} placeholder="/var/run/docker.sock" />
