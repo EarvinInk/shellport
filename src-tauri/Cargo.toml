@@ -2,6 +2,7 @@
 name = "shellport"
 version = "0.1.0"
 description = "SSH, SFTP and Docker client for Linux"
+authors = ["kevin <kevinsreelatha@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/EarvinInk/shellport"
 homepage = "https://github.com/EarvinInk/shellport"

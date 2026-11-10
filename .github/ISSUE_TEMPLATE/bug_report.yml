@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Shellport doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't include passwords, private keys, or real server addresses you'd rather keep private.
+        **Security issues:** report them privately via the "Report a vulnerability" button under the Security tab instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See error …
+  - type: input
+    id: version
+    attributes:
+      label: Shellport version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Installed from
+      options:
+        - .deb package
+        - AppImage
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Linux distribution and version
+      placeholder: "Ubuntu 24.04 / Linux Mint 22 / Debian 12 …"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs
+      description: Run `shellport` from a terminal and paste anything it prints.
+      render: text

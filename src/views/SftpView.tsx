@@ -76,6 +76,9 @@ function usePane(loader: (p: string) => Promise<FileEntry[]>, initial: () => Pro
   return { path, entries, loading, err, selected, setSelected, load, back, refresh: () => load(path, false) };
 }
 
+/** Compact modified date, e.g. "10 Nov 2026, 10:35" (full time in the tooltip). */
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
 /** Must match `sftp::EXISTS_PREFIX` in the backend. */
 const EXISTS_PREFIX = "local files exist:";
 
@@ -369,7 +372,9 @@ function Pane({
                 </td>
                 <td className="px-2 text-xs text-fg-muted">{e.isDir ? "" : formatBytes(e.size)}</td>
                 <td className="px-2 font-mono text-xs text-fg-subtle">{modeString(e.permissions, e.isDir)}</td>
-                <td className="px-2 text-xs text-fg-subtle">{e.mtime ? new Date(e.mtime * 1000).toLocaleString() : ""}</td>
+                <td className="whitespace-nowrap px-2 text-xs text-fg-subtle" title={e.mtime ? new Date(e.mtime * 1000).toLocaleString() : undefined}>
+                  {e.mtime ? SHORT_DATE.format(new Date(e.mtime * 1000)) : ""}
+                </td>
               </tr>
             ))}
           </tbody>

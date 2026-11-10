@@ -9,8 +9,24 @@ use zeroize::Zeroizing;
 const SERVICE: &str = "shellport";
 const ACCOUNT: &str = "vault-key";
 
+/// Keyring account for the vault in `config_dir`. The standard profile keeps
+/// the original name; any other profile (`$SHELLPORT_CONFIG_DIR`) gets its own
+/// entry so it can never overwrite or delete the main vault's key.
+fn account_for(config_dir: &std::path::Path, default_dir: &std::path::Path) -> String {
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let dir = canon(config_dir);
+    if dir == canon(default_dir) {
+        return ACCOUNT.to_string();
+    }
+    use sha1::Digest;
+    let digest = sha1::Sha1::digest(dir.to_string_lossy().as_bytes());
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("{ACCOUNT}:{hex}")
+}
+
 fn entry() -> Result<keyring::Entry> {
-    Ok(keyring::Entry::new(SERVICE, ACCOUNT)?)
+    let account = account_for(&crate::paths::config_dir(), &crate::paths::default_config_dir());
+    Ok(keyring::Entry::new(SERVICE, &account)?)
 }
 
 pub fn store(key: &[u8; 32]) -> Result<()> {
@@ -45,4 +61,23 @@ pub fn clear() -> Result<()> {
 
 pub fn is_stored() -> bool {
     matches!(load(), Ok(Some(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::account_for;
+
+    #[test]
+    fn default_profile_keeps_original_account_others_differ() {
+        let d = tempfile::tempdir().unwrap();
+        let (main, other, other2) = (d.path().join("main"), d.path().join("demo"), d.path().join("demo2"));
+        for p in [&main, &other, &other2] {
+            std::fs::create_dir(p).unwrap();
+        }
+        assert_eq!(account_for(&main, &main), "vault-key");
+        let a = account_for(&other, &main);
+        assert!(a.starts_with("vault-key:") && a.len() == "vault-key:".len() + 16, "{a}");
+        assert_ne!(a, account_for(&other2, &main));
+        assert_eq!(a, account_for(&other, &main), "stable");
+    }
 }

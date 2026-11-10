@@ -718,7 +718,9 @@ pub async fn stream_multi_logs(
                     .follow(follow)
                     .stdout(true)
                     .stderr(true)
-                    .timestamps(timestamps)
+                    // Always timestamped: used to order the backlog, then stripped
+                    // again unless the user asked to see them.
+                    .timestamps(true)
                     .tail(&tail.to_string())
                     .build();
                 let mut stream = docker.logs(&id, Some(opts));
@@ -734,9 +736,8 @@ pub async fn stream_multi_logs(
             DockerBackend::Cli { conn } => {
                 let mut ch = conn.handle.channel_open_session().await?;
                 let cmd = format!(
-                    "docker logs {}{}--tail {} {}",
+                    "docker logs {}-t --tail {} {}",
                     if follow { "-f " } else { "" },
-                    if timestamps { "-t " } else { "" },
                     tail,
                     shell_quote(&id)
                 );
@@ -767,49 +768,122 @@ pub async fn stream_multi_logs(
     let collector = tokio::spawn(async move {
         let _keep = keep;
         let _guards: Vec<AbortOnDrop> = producers.into_iter().map(AbortOnDrop).collect();
-        let mut bufs: Vec<Vec<u8>> = vec![Vec::new(); names.len()];
-        let mut open = names.len();
+        let n = names.len();
+        let mut bufs: Vec<Vec<u8>> = vec![Vec::new(); n];
+        let mut last_key: Vec<Vec<u8>> = vec![Vec::new(); n];
+        let mut open = n;
         let prefix = |i: usize| {
-            let n = &names[i];
-            let n: String = n.chars().take(width).collect();
-            format!("\x1b[{}m{:<w$} |\x1b[0m ", COLORS[i % COLORS.len()], n, w = width)
+            let name: String = names[i].chars().take(width).collect();
+            format!("\x1b[{}m{:<w$} |\x1b[0m ", COLORS[i % COLORS.len()], name, w = width)
         };
-        while let Some((i, chunk)) = rx.recv().await {
-            let mut outbuf = Vec::new();
-            match chunk {
+        // The tail of every container arrives in a burst: collect it briefly
+        // and sort it by time, then pass new lines through as they come.
+        let mut backlog: Option<Vec<(Vec<u8>, Vec<u8>)>> = Some(Vec::new());
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(800);
+        let flush = |backlog: &mut Option<Vec<(Vec<u8>, Vec<u8>)>>| -> Vec<u8> {
+            let mut lines = backlog.take().unwrap_or_default();
+            lines.sort_by(|a, b| a.0.cmp(&b.0)); // stable: equal times keep arrival order
+            lines.into_iter().flat_map(|(_, l)| l).collect()
+        };
+        loop {
+            let msg = if backlog.is_some() {
+                tokio::select! {
+                    m = rx.recv() => m,
+                    _ = tokio::time::sleep_until(deadline) => {
+                        let out_bytes = flush(&mut backlog);
+                        if !out_bytes.is_empty() && out.send(data_event(&out_bytes)).is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                rx.recv().await
+            };
+            let Some((i, chunk)) = msg else { break };
+            let mut lines: Vec<Vec<u8>> = Vec::new();
+            match &chunk {
                 Some(bytes) => {
-                    bufs[i].extend_from_slice(&bytes);
+                    bufs[i].extend_from_slice(bytes);
                     while let Some(pos) = bufs[i].iter().position(|&c| c == b'\n') {
-                        let line: Vec<u8> = bufs[i].drain(..=pos).collect();
-                        let line = line.strip_suffix(b"\n").unwrap_or(&line);
-                        let line = line.strip_suffix(b"\r").unwrap_or(line);
-                        outbuf.extend_from_slice(prefix(i).as_bytes());
-                        outbuf.extend_from_slice(line);
-                        outbuf.extend_from_slice(b"\r\n");
+                        lines.push(bufs[i].drain(..=pos).collect());
                     }
                 }
                 None => {
                     if !bufs[i].is_empty() {
-                        let rest = std::mem::take(&mut bufs[i]);
-                        outbuf.extend_from_slice(prefix(i).as_bytes());
-                        outbuf.extend_from_slice(&rest);
-                        outbuf.extend_from_slice(b"\r\n");
+                        lines.push(std::mem::take(&mut bufs[i]));
                     }
-                    outbuf.extend_from_slice(format!("{}\x1b[90m(stream ended)\x1b[0m\r\n", prefix(i)).as_bytes());
                     open -= 1;
                 }
             }
-            if !outbuf.is_empty() && out.send(data_event(&outbuf)).is_err() {
-                return;
+            let ended = chunk.is_none();
+            let mut rendered: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+            for line in lines {
+                let line = line.strip_suffix(b"\n").unwrap_or(&line);
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                let (ts, rest) = split_timestamp(line);
+                if let Some(ts) = ts {
+                    last_key[i] = sort_key(ts);
+                }
+                let mut l = prefix(i).into_bytes();
+                l.extend_from_slice(if timestamps { line } else { rest });
+                l.extend_from_slice(b"\r\n");
+                rendered.push((last_key[i].clone(), l));
+            }
+            if ended {
+                let mut l = prefix(i).into_bytes();
+                l.extend_from_slice(b"\x1b[90m(stream ended)\x1b[0m\r\n");
+                rendered.push((last_key[i].clone(), l));
+            }
+            match backlog.as_mut() {
+                Some(b) => b.extend(rendered),
+                None => {
+                    let out_bytes: Vec<u8> = rendered.into_iter().flat_map(|(_, l)| l).collect();
+                    if !out_bytes.is_empty() && out.send(data_event(&out_bytes)).is_err() {
+                        return;
+                    }
+                }
             }
             if open == 0 {
                 break;
             }
         }
+        let tail_bytes = flush(&mut backlog);
+        if !tail_bytes.is_empty() {
+            let _ = out.send(data_event(&tail_bytes));
+        }
         let _ = out.send(TermEvent::Exit { code: None });
     });
     app.state::<AppState>().add_task(task_id.clone(), collector.abort_handle());
     Ok(task_id)
+}
+
+/// Split Docker's `--timestamps` prefix (`2026-11-10T05:11:13.123456789Z `)
+/// off a log line. Lines without one are returned unchanged.
+fn split_timestamp(line: &[u8]) -> (Option<&[u8]>, &[u8]) {
+    let Some(sp) = line.iter().position(|&c| c == b' ') else { return (None, line) };
+    let ts = &line[..sp];
+    let looks_like = ts.len() >= 20 && ts[0].is_ascii_digit() && ts.get(10) == Some(&b'T') && ts.ends_with(b"Z");
+    if looks_like {
+        (Some(ts), &line[sp + 1..])
+    } else {
+        (None, line)
+    }
+}
+
+/// Sortable form of an RFC 3339 UTC timestamp: Docker trims trailing zeros of
+/// the fraction (".1Z" vs ".12Z"), so pad it to 9 digits first.
+fn sort_key(ts: &[u8]) -> Vec<u8> {
+    let body = ts.strip_suffix(b"Z").unwrap_or(ts);
+    let (secs, frac) = match body.iter().position(|&c| c == b'.') {
+        Some(p) => (&body[..p], &body[p + 1..]),
+        None => (body, &b""[..]),
+    };
+    let mut k = secs.to_vec();
+    k.push(b'.');
+    k.extend_from_slice(&frac[..frac.len().min(9)]);
+    k.resize(secs.len() + 1 + 9, b'0');
+    k
 }
 
 /// Aborts the producer tasks when the collector is cancelled or finishes.
@@ -823,6 +897,18 @@ impl Drop for AbortOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_timestamps_split_and_sort() {
+        let (ts, rest) = split_timestamp(b"2026-11-10T05:11:13.1Z GET /api 200");
+        assert_eq!(ts, Some(&b"2026-11-10T05:11:13.1Z"[..]));
+        assert_eq!(rest, b"GET /api 200");
+        assert_eq!(split_timestamp(b"plain line here"), (None, &b"plain line here"[..]));
+        assert_eq!(split_timestamp(b"nospace"), (None, &b"nospace"[..]));
+        // .12 is later than .1 even though it sorts first as raw text.
+        assert!(sort_key(b"2026-11-10T05:11:13.12Z") > sort_key(b"2026-11-10T05:11:13.1Z"));
+        assert!(sort_key(b"2026-11-10T05:11:14Z") > sort_key(b"2026-11-10T05:11:13.999999999Z"));
+    }
 
     #[test]
     fn cli_parsers() {

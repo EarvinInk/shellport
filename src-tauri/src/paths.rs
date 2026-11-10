@@ -5,6 +5,11 @@ pub fn config_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("SHELLPORT_CONFIG_DIR") {
         return PathBuf::from(dir);
     }
+    default_config_dir()
+}
+
+/// The standard per-user config folder, ignoring `$SHELLPORT_CONFIG_DIR`.
+pub fn default_config_dir() -> PathBuf {
     directories::ProjectDirs::from("", "", "shellport")
         .map(|d| d.config_dir().to_path_buf())
         .unwrap_or_else(|| home_dir().join(".config/shellport"))
