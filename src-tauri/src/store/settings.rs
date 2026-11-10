@@ -18,6 +18,9 @@ pub struct Settings {
     pub docker_log_tail: u32,
     /// Reopen the previous session's tabs on startup (they connect when first shown).
     pub restore_tabs: bool,
+    /// Show whether hosts are up (a brief connection to each host's SSH port
+    /// every few minutes while Shellport is visible).
+    pub host_status_checks: bool,
 }
 
 impl Default for Settings {
@@ -34,6 +37,7 @@ impl Default for Settings {
             local_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()),
             docker_log_tail: 500,
             restore_tabs: true,
+            host_status_checks: true,
         }
     }
 }

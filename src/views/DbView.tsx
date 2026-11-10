@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, IconButton, Modal, Select, TextArea } from "../components/ui";
+import { Button, Empty, IconButton, Modal, ProdBadge, Select, TextArea } from "../components/ui";
 import { DB_ENGINES } from "../lib/dbEngines";
 import { api, errMsg } from "../lib/ipc";
 import type { Cell, DbConnected, QueryOutput, QueryRisk, SchemaNode, StatementResult, TxState } from "../lib/types";
@@ -434,6 +434,7 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
             </div>
           )}
           <div className="flex-1" />
+          {conn?.production && <ProdBadge />}
           {conn?.safety === "read-only" && (
             <span className="flex shrink-0 items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-[11px] text-fg-muted" title="This connection refuses writes">
               <Lock size={11} /> Read-only

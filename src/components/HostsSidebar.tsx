@@ -1,10 +1,10 @@
 import clsx from "clsx";
-import { ArrowLeftRight, Box, FileUp, FolderOpen, Pencil, Plus, Search, Server, SquareTerminal, Terminal, Unplug } from "lucide-react";
+import { ArrowLeftRight, Box, FileUp, FolderOpen, NotebookPen, Pencil, Plus, Search, Server, SquareTerminal, Terminal, Unplug } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Host } from "../lib/types";
 import { useApp } from "../store";
-import { IconButton, Input } from "./ui";
+import { IconButton, Input, ProdBadge } from "./ui";
 
 export function openSsh(h: Host) {
   useApp.getState().openTab({ kind: "ssh", title: h.name, hostId: h.id });
@@ -88,29 +88,42 @@ export function HostsSidebar() {
 }
 
 function HostRow({ h }: { h: Host }) {
-  const { setHostEditor, toast, error, setForwardsHost } = useApp();
+  const { setHostEditor, toast, error, setForwardsHost, setNotesHost } = useApp();
   const activeFwd = useApp((st) => st.forwards.filter((f) => f.hostId === h.id).length);
+  const up = useApp((st) => st.hostStatus[h.id]);
+  const statusOn = useApp((st) => st.settings?.hostStatusChecks ?? true);
   return (
     <div
-      className="group flex select-none items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-3 cursor-pointer"
+      className="group relative flex select-none items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-3 cursor-pointer"
       onDoubleClick={() => openSsh(h)}
       title="Double-click to connect"
     >
       <div
-        className={clsx("flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-3 text-fg-muted")}
+        className={clsx("relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-3 text-fg-muted")}
         style={h.color ? { background: h.color + "33", color: h.color } : undefined}
       >
         <Server size={14} />
+        {statusOn && up !== undefined && up !== null && (
+          <span
+            className={clsx("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-1", up ? "bg-ok" : "bg-danger")}
+            title={up ? "Reachable" : "Not reachable right now"}
+          />
+        )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">{h.name}</div>
+        <div className="flex items-center gap-1.5 text-sm">
+          <span className="truncate">{h.name}</span>
+          {h.production && <ProdBadge />}
+          {h.notes && <NotebookPen size={11} className="shrink-0 text-fg-subtle" aria-label="Has notes" />}
+        </div>
         <div className="truncate text-[11px] text-fg-subtle">
           {h.username}@{h.hostname}
           {h.port !== 22 ? `:${h.port}` : ""} · {authLabel(h)}
           {activeFwd > 0 && <span className="ml-1 text-ok">· {activeFwd} fwd</span>}
         </div>
       </div>
-      <div className="hidden shrink-0 group-hover:flex">
+      {/* Overlay the actions so they never squeeze the name (as on database rows). */}
+      <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface-3 pl-1 shadow-[-8px_0_8px_var(--color-surface-3)] group-hover:flex group-focus-within:flex">
         <IconButton title="Open terminal" onClick={() => openSsh(h)}>
           <SquareTerminal size={14} />
         </IconButton>
@@ -133,6 +146,9 @@ function HostRow({ h }: { h: Host }) {
           }
         >
           <Unplug size={14} />
+        </IconButton>
+        <IconButton title="Notes" onClick={() => setNotesHost(h.id)}>
+          <NotebookPen size={14} />
         </IconButton>
         <IconButton title="Edit" onClick={() => setHostEditor(h)}>
           <Pencil size={14} />

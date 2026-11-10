@@ -51,6 +51,12 @@ export function SettingsView() {
             <Checkbox label="Copy on select" checked={s.copyOnSelect} onChange={(v) => set("copyOnSelect", v)} />
             <Checkbox label="Restore tabs on startup" checked={s.restoreTabs} onChange={(v) => set("restoreTabs", v)} />
           </div>
+          <div className="flex flex-col gap-1">
+            <Checkbox label="Show whether hosts are up" checked={s.hostStatusChecks} onChange={(v) => set("hostStatusChecks", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Briefly connects to each host's SSH port every few minutes while Shellport is visible (no login). Some intrusion-prevention tools log these short connections; turn this off if yours does.
+            </span>
+          </div>
           <p className="text-xs text-fg-subtle">Shortcuts: Ctrl+Shift+C copy · Ctrl+Shift+V paste · Ctrl+Shift+F search · Ctrl+Shift+T new local tab · Ctrl+Shift+W close tab</p>
         </section>
         <section className="space-y-3">

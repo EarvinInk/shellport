@@ -59,6 +59,23 @@ export interface Host {
   onDisconnect?: "reconnect" | "ask" | "close";
   /** Keep each terminal's shell alive in a tmux session on the server. */
   tmuxSession?: boolean;
+  /** Production server: risky actions always ask first. */
+  production?: boolean;
+  /** Markdown notes about this host. */
+  notes?: string | null;
+  /** Kept in sync with this `Host` entry in ~/.ssh/config. */
+  sshConfigAlias?: string | null;
+}
+
+export interface HostStatus {
+  id: string;
+  /** null: not checked (behind a jump host that is up). */
+  up: boolean | null;
+}
+
+export interface HostImportPreview {
+  names: string[];
+  existing: string[];
 }
 
 export interface SshConfigEntry {
@@ -130,6 +147,7 @@ export interface Settings {
   localShell: string;
   dockerLogTail: number;
   restoreTabs: boolean;
+  hostStatusChecks: boolean;
 }
 
 export interface AuthPrompt {
@@ -222,6 +240,7 @@ export interface DbProfile {
   viaHostId?: string | null;
   sslMode: SslMode;
   safety: DbSafety;
+  production?: boolean;
   options: Record<string, string>;
   color?: string | null;
   tags: string[];
@@ -280,6 +299,18 @@ export interface DbConnected {
   serverVersion: string;
   engine: DbEngine;
   safety: DbSafety;
+  /** The connection or its SSH host is marked Production. */
+  production: boolean;
+}
+
+export interface DbUrl {
+  host: string;
+  port?: number | null;
+  database: string;
+  username: string;
+  password?: string | null;
+  sslMode?: SslMode | null;
+  options: Record<string, string>;
 }
 
 // ---------- backup ----------

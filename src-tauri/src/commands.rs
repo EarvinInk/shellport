@@ -176,14 +176,158 @@ pub fn secret_generate_key(state: State<'_, AppState>, name: String) -> CmdResul
 
 // ---------- hosts ----------
 
+/// Hosts, with those linked to `~/.ssh/config` refreshed from the file.
 #[tauri::command]
 pub fn hosts_list(state: State<'_, AppState>) -> Vec<Host> {
-    state.hosts.lock().list()
+    let mut store = state.hosts.lock();
+    let hosts = store.list();
+    if hosts.iter().any(|h| h.ssh_config_alias.is_some()) {
+        let entries = ssh_config::parse_file(&ssh_config::default_path());
+        let changed = ssh_config::refresh_linked(&hosts, &entries);
+        if !changed.is_empty() {
+            if let Err(e) = store.replace_all(changed) {
+                log::warn!("saving hosts refreshed from ~/.ssh/config: {e:#}");
+            }
+            return store.list();
+        }
+    }
+    hosts
 }
 
 #[tauri::command]
 pub fn host_save(state: State<'_, AppState>, host: Host) -> CmdResult<Host> {
-    Ok(state.hosts.lock().upsert(host)?)
+    let mut store = state.hosts.lock();
+    let saved = store.upsert(host)?;
+    // Linked hosts are written back to ~/.ssh/config, keeping the rest of the file.
+    if saved.ssh_config_alias.is_some() {
+        let jump_alias = saved.jump_host_id.as_deref().and_then(|j| store.get(j).ok()).and_then(|j| j.ssh_config_alias);
+        ssh_config::write_linked(&ssh_config::default_path(), &saved, jump_alias.as_deref())
+            .map_err(|e| anyhow!("saved in Shellport, but ~/.ssh/config could not be updated: {e:#}"))?;
+    }
+    Ok(saved)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostStatus {
+    id: String,
+    /// None: not checked (reached through a jump host or proxy).
+    up: Option<bool>,
+}
+
+/// Can each host be reached? A TCP connect only (no login); hosts behind a
+/// jump host report their jump host's state.
+#[tauri::command]
+pub async fn hosts_status(state: State<'_, AppState>) -> CmdResult<Vec<HostStatus>> {
+    let hosts = state.hosts.lock().list();
+    let direct = futures_util::future::join_all(hosts.iter().map(|h| {
+        let (addr, port) = (h.hostname.clone(), h.port);
+        async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let Ok(Ok(mut s)) = tokio::time::timeout(std::time::Duration::from_secs(3), tokio::net::TcpStream::connect((addr.as_str(), port))).await
+            else {
+                return false;
+            };
+            // Greet like `ssh-keyscan` and read the server's banner, so the
+            // server logs an ordinary short connection rather than a stall.
+            let _ = s.write_all(b"SSH-2.0-Shellport_status\r\n").await;
+            let mut buf = [0u8; 64];
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(1), s.read(&mut buf)).await;
+            true
+        }
+    }))
+    .await;
+    let by_id: std::collections::HashMap<&str, bool> = hosts.iter().zip(&direct).map(|(h, up)| (h.id.as_str(), *up)).collect();
+    Ok(hosts
+        .iter()
+        .zip(&direct)
+        .map(|(h, up)| HostStatus {
+            id: h.id.clone(),
+            up: match &h.jump_host_id {
+                None => Some(*up),
+                Some(j) => by_id.get(j.as_str()).copied().filter(|j_up| !j_up).map(|_| false),
+            },
+        })
+        .collect())
+}
+
+/// Fill a database connection from a `postgres://` URL.
+#[tauri::command]
+pub fn db_parse_url(url: String) -> CmdResult<crate::store::address::DbUrl> {
+    Ok(crate::store::address::parse_db_url(&url)?)
+}
+
+/// Export hosts (no secrets) as JSON or CSV to a file the user picks.
+#[tauri::command]
+pub async fn hosts_export(app: AppHandle, state: State<'_, AppState>, format: String) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let hosts = state.hosts.lock().list();
+    let (text, ext) = match format.as_str() {
+        "csv" => (crate::store::host_io::export_csv(&hosts), "csv"),
+        _ => (crate::store::host_io::export_json(&hosts)?, "json"),
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Export hosts")
+        .set_file_name(format!("shellport-hosts.{ext}"))
+        .add_filter(if ext == "csv" { "CSV" } else { "JSON" }, &[ext])
+        .save_file(move |p| {
+            let _ = tx.send(p);
+        });
+    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
+    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    crate::paths::write_private(&path, text.as_bytes())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostImportPreview {
+    names: Vec<String>,
+    /// Names already present here (skipped on import).
+    existing: Vec<String>,
+}
+
+fn read_host_file(state: &AppState, path: &str) -> anyhow::Result<crate::store::host_io::Imported> {
+    let p = granted_path(state, std::path::Path::new(path), false)?;
+    if std::fs::metadata(&p)?.len() > 5 * 1024 * 1024 {
+        anyhow::bail!("the file is too large for a hosts list");
+    }
+    crate::store::host_io::parse(&std::fs::read_to_string(&p)?)
+}
+
+#[tauri::command]
+pub fn hosts_import_preview(state: State<'_, AppState>, path: String) -> CmdResult<HostImportPreview> {
+    let imp = read_host_file(&state, &path)?;
+    let have: Vec<String> = state.hosts.lock().list().into_iter().map(|h| h.name).collect();
+    let names: Vec<String> = imp.hosts.iter().map(|h| h.name.clone()).collect();
+    let existing = names.iter().filter(|n| have.contains(n)).cloned().collect();
+    Ok(HostImportPreview { names, existing })
+}
+
+/// Import hosts from a JSON or CSV file, skipping names that already exist and
+/// linking jump hosts by name.
+#[tauri::command]
+pub fn hosts_import_file(state: State<'_, AppState>, path: String) -> CmdResult<usize> {
+    let imp = read_host_file(&state, &path)?;
+    let mut store = state.hosts.lock();
+    let jumps: Vec<(String, String)> = imp.hosts.iter().zip(&imp.jumps).filter_map(|(h, j)| j.clone().map(|j| (h.name.clone(), j))).collect();
+    let n = store.import(imp.hosts)?;
+    let all = store.list();
+    let id_of = |name: &str| all.iter().find(|h| h.name == name).map(|h| h.id.clone());
+    let mut changed = Vec::new();
+    for (name, jump) in jumps {
+        if let (Some(mut h), Some(j)) = (all.iter().find(|h| h.name == name).cloned(), id_of(&jump)) {
+            if h.jump_host_id.is_none() && h.id != j {
+                h.jump_host_id = Some(j);
+                changed.push(h);
+            }
+        }
+    }
+    store.replace_all(changed)?;
+    granted_path(&state, std::path::Path::new(&path), true).ok();
+    Ok(n)
 }
 
 #[tauri::command]
@@ -220,7 +364,14 @@ pub fn ssh_config_preview(state: State<'_, AppState>, path: Option<String>) -> C
 pub fn ssh_config_import(state: State<'_, AppState>, path: Option<String>, aliases: Vec<String>) -> CmdResult<usize> {
     let p = ssh_config_path(&state, path)?;
     let entries = ssh_config::parse_file(&p);
-    let hosts: Vec<Host> = ssh_config::to_hosts(&entries).into_iter().filter(|h| aliases.contains(&h.name)).collect();
+    // Hosts imported from ~/.ssh/config stay linked to it; from another file
+    // they are a one-time copy.
+    let linked = p == ssh_config::default_path();
+    let hosts: Vec<Host> = ssh_config::to_hosts(&entries)
+        .into_iter()
+        .filter(|h| aliases.contains(&h.name))
+        .map(|h| Host { ssh_config_alias: h.ssh_config_alias.filter(|_| linked), ..h })
+        .collect();
     Ok(state.hosts.lock().import(hosts)?)
 }
 
@@ -336,19 +487,24 @@ pub struct DbConnected {
     server_version: String,
     engine: crate::db::DbEngine,
     safety: Safety,
+    production: bool,
 }
 
 #[tauri::command]
 pub async fn db_connect(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<DbConnected> {
     let db = state.dbs.lock().get(&id)?;
     let session_id = uuid::Uuid::new_v4().to_string();
+    let host_production = db.via_host_id.as_deref().and_then(|h| state.hosts.lock().get(h).ok()).is_some_and(|h| h.production);
+    let safety = db.effective_safety(host_production);
+    let production = db.production || host_production;
     let (session, tunnel_task) = crate::db::session::open(&app, &db, &session_id).await?;
     let server_version = session.server_version();
-    state.db_sessions.lock().await.insert(
-        session_id.clone(),
-        crate::db::session::OpenDb { session, profile_id: id, tunnel_task, safety: db.safety },
-    );
-    Ok(DbConnected { session_id, server_version, engine: db.engine, safety: db.safety })
+    state
+        .db_sessions
+        .lock()
+        .await
+        .insert(session_id.clone(), crate::db::session::OpenDb { session, profile_id: id, tunnel_task, safety });
+    Ok(DbConnected { session_id, server_version, engine: db.engine, safety, production })
 }
 
 #[tauri::command]

@@ -15,6 +15,8 @@ Shellport has a built-in database client. PostgreSQL is supported today; more en
 4. Optional: under **SSH tunnel**, choose one of your saved hosts. The host and port you entered are then resolved *from that server*, so a database listening on the server's `127.0.0.1:5432` is reachable without exposing it.
 5. Click **Test connection**, then **Save**.
 
+Have a connection string? Paste `postgres://user:password@host:5432/database?sslmode=require` into **Paste a connection string** and the fields fill themselves; the password goes to the vault when you save (`pgbouncer=true` turns on pooler mode).
+
 The tunnel uses a random local port that only Shellport uses, and it closes with the tab. Jump hosts configured on the SSH host are used automatically.
 
 ## Browse and query

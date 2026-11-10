@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { DB_ENGINES } from "../lib/dbEngines";
 import type { DbProfile } from "../lib/types";
 import { useApp } from "../store";
-import { IconButton, Input } from "./ui";
+import { IconButton, Input, ProdBadge } from "./ui";
 
 /** Open a new tab for the profile; extra tabs on the same database are numbered. */
 export function openDb(d: DbProfile) {
@@ -61,7 +61,9 @@ export function DatabasesSidebar() {
 
 function DbRow({ d }: { d: DbProfile }) {
   const { setDbEditor } = useApp();
-  const via = useApp((s) => s.hosts.find((h) => h.id === d.viaHostId)?.name);
+  const viaHost = useApp((s) => s.hosts.find((h) => h.id === d.viaHostId));
+  const via = viaHost?.name;
+  const production = !!d.production || !!viaHost?.production;
   const live = useApp((s) => s.dbLive[d.id] ?? 0);
   const txOpen = useApp((s) => s.dbTx[d.id] ?? 0);
   const engine = DB_ENGINES[d.engine];
@@ -88,6 +90,7 @@ function DbRow({ d }: { d: DbProfile }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm">
           <span className="truncate">{d.name}</span>
+          {production && <ProdBadge />}
           {via && (
             <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-accent" title={`Through SSH host ${via}`}>
               <Network size={10} /> {via}

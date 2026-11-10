@@ -149,6 +149,92 @@ pub fn parse_file(path: &Path) -> Vec<SshConfigEntry> {
         .collect()
 }
 
+/// Hosts linked to `~/.ssh/config` take their address, user, port, key file
+/// and jump host from the file (it is the source of truth). Returns the hosts
+/// that changed. Password and vault-key logins are left alone.
+pub fn refresh_linked(hosts: &[Host], entries: &[SshConfigEntry]) -> Vec<Host> {
+    let mut changed = Vec::new();
+    for h in hosts {
+        let Some(alias) = h.ssh_config_alias.as_deref() else { continue };
+        let Some(e) = entries.iter().find(|e| e.alias == alias) else { continue };
+        let mut n = h.clone();
+        n.hostname = e.hostname.clone().unwrap_or_else(|| alias.to_string());
+        if let Some(u) = &e.user {
+            n.username = u.clone();
+        }
+        n.port = e.port.unwrap_or(22);
+        if matches!(n.auth, AuthMethod::KeyFile { .. } | AuthMethod::Agent) {
+            let pass = match &n.auth {
+                AuthMethod::KeyFile { passphrase_secret_id, .. } => passphrase_secret_id.clone(),
+                _ => None,
+            };
+            n.auth = match &e.identity_file {
+                Some(f) => AuthMethod::KeyFile { path: f.clone(), passphrase_secret_id: pass },
+                None => AuthMethod::Agent,
+            };
+        }
+        n.jump_host_id = match &e.proxy_jump {
+            Some(pj) => {
+                let first = pj.split(',').next().unwrap_or("");
+                let name = first.rsplit_once('@').map(|(_, h)| h).unwrap_or(first);
+                let name = name.split(':').next().unwrap_or(name);
+                hosts.iter().find(|j| j.id != h.id && (j.ssh_config_alias.as_deref() == Some(name) || j.name == name)).map(|j| j.id.clone())
+            }
+            None => None,
+        };
+        if n.hostname != h.hostname || n.username != h.username || n.port != h.port || n.auth != h.auth || n.jump_host_id != h.jump_host_id {
+            changed.push(n);
+        }
+    }
+    changed
+}
+
+/// What Shellport writes back to `~/.ssh/config` for a linked host.
+pub fn managed_for(host: &Host, jump_alias: Option<&str>) -> super::ssh_config_edit::Managed {
+    use super::ssh_config_edit::Managed;
+    Managed {
+        hostname: Some(host.hostname.clone()),
+        user: Some(host.username.clone()),
+        port: Some(if host.port == 22 { String::new() } else { host.port.to_string() }),
+        identity_file: match &host.auth {
+            AuthMethod::KeyFile { path, .. } => Some(path.clone()),
+            AuthMethod::Agent => Some(String::new()),
+            // Vault keys and passwords live in Shellport only.
+            _ => None,
+        },
+        proxy_jump: match (&host.jump_host_id, jump_alias) {
+            (None, _) => Some(String::new()),
+            (Some(_), Some(a)) => Some(a.to_string()),
+            // The jump host isn't in the file: leave the line as it is.
+            (Some(_), None) => None,
+        },
+    }
+}
+
+/// Write `host` back into the config file, keeping everything else intact.
+/// A copy of the previous file is kept next to it.
+pub fn write_linked(path: &Path, host: &Host, jump_alias: Option<&str>) -> anyhow::Result<()> {
+    let alias = host.ssh_config_alias.as_deref().ok_or_else(|| anyhow::anyhow!("host is not linked to ~/.ssh/config"))?;
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    // Defined only in an included file: appending here would be shadowed by
+    // the original, so don't pretend to have saved it.
+    if !super::ssh_config_edit::has_block(&old, alias) && parse_file(path).iter().any(|e| e.alias == alias) {
+        anyhow::bail!("\"{alias}\" is defined in a file included from {} (or shares a Host line with other names); edit it there, or turn off sync for this host", path.display());
+    }
+    let new = super::ssh_config_edit::upsert_block(&old, alias, &managed_for(host, jump_alias));
+    if new == old {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    if !old.is_empty() {
+        crate::paths::write_private(&path.with_file_name("config.shellport-backup"), old.as_bytes())?;
+    }
+    crate::paths::write_private(path, new.as_bytes())?;
+    Ok(())
+}
+
 pub fn default_path() -> PathBuf {
     home_dir().join(".ssh/config")
 }
@@ -179,6 +265,9 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
             startup_command: None,
             on_disconnect: Default::default(),
             tmux_session: false,
+            production: false,
+            notes: None,
+            ssh_config_alias: Some(e.alias.clone()),
         })
         .collect();
     // Resolve ProxyJump (first hop only; `user@host:port` forms match by alias).
@@ -197,6 +286,39 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linked_hosts_round_trip_through_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        std::fs::write(&path, "# keep me\nHost bastion\n  HostName 1.2.3.4\n\nHost web\n  HostName 10.0.0.5\n  User deploy\n  ProxyJump bastion\n  ForwardAgent yes\n").unwrap();
+        let mut hosts = to_hosts(&parse_file(&path));
+        for (i, h) in hosts.iter_mut().enumerate() {
+            h.id = format!("h{i}");
+        }
+        // Linked hosts take their values (and jump host) from the file.
+        let changed = refresh_linked(&hosts, &parse_file(&path));
+        let web = changed.iter().find(|h| h.name == "web").unwrap().clone();
+        assert_eq!(web.jump_host_id.as_deref(), Some("h0"));
+        // Edit in Shellport and write back: only the managed lines change.
+        let mut web = web;
+        web.hostname = "10.0.0.6".into();
+        web.port = 2200;
+        write_linked(&path, &web, Some("bastion")).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# keep me\nHost bastion\n  HostName 1.2.3.4\n"), "{text}");
+        assert!(text.contains("  HostName 10.0.0.6\n") && text.contains("  Port 2200\n") && text.contains("  ForwardAgent yes\n"), "{text}");
+        assert!(dir.path().join("config.shellport-backup").exists());
+        let again = parse_file(&path);
+        let e = again.iter().find(|e| e.alias == "web").unwrap();
+        assert_eq!((e.hostname.as_deref(), e.port), (Some("10.0.0.6"), Some(2200)));
+        // A host that only exists in an included file is refused, not duplicated.
+        std::fs::write(dir.path().join("extra"), "Host inc\n  HostName 9.9.9.9\n").unwrap();
+        std::fs::write(&path, format!("Include {}\n", dir.path().join("extra").display())).unwrap();
+        let mut inc = web.clone();
+        inc.ssh_config_alias = Some("inc".into());
+        assert!(write_linked(&path, &inc, None).unwrap_err().to_string().contains("included"));
+    }
 
     #[test]
     fn include_bomb_is_bounded() {

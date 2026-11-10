@@ -3,7 +3,7 @@ import { Lock, Play, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DB_ENGINES, SSL_LABELS } from "../lib/dbEngines";
 import { api, errMsg } from "../lib/ipc";
-import type { DbEngine, DbProfile, DbSafety, SslMode } from "../lib/types";
+import type { DbEngine, DbProfile, DbSafety, DbUrl, SslMode } from "../lib/types";
 import { useApp } from "../store";
 import { Button, Checkbox, Field, Input, Modal, Select } from "./ui";
 
@@ -63,7 +63,8 @@ export function DbEditor() {
 
   /** Store a newly typed password in the vault and point the profile at it. */
   const withPassword = async (): Promise<DbProfile> => {
-    if (!inlinePw) return d;
+    // A password can only be stored in an unlocked vault; never anywhere else.
+    if (!inlinePw || !vault.unlocked) return d;
     const meta = await api.secretSave({
       name: `${d.name || d.host} database password`,
       kind: "password",
@@ -208,6 +209,20 @@ export function DbEditor() {
         </Section>
 
         <Section title="Connection">
+          <ConnectionString
+            onParsed={(u) => {
+              setD((p) => ({
+                ...p,
+                host: u.host,
+                port: u.port ?? p.port,
+                database: u.database || p.database,
+                username: u.username || p.username,
+                sslMode: u.sslMode ?? p.sslMode,
+                options: { ...p.options, ...u.options },
+              }));
+              if (u.password) setInlinePw(u.password);
+            }}
+          />
           <Field
             label="Connect through"
             className="mb-4"
@@ -255,7 +270,11 @@ export function DbEditor() {
           <div className="mt-4">
             {needsVault ? (
               <div className="flex items-center gap-3 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2.5 text-sm text-warn">
-                <Lock size={15} /> <span className="flex-1">The vault is locked. Unlock it to choose or store a password.</span>
+                <Lock size={15} /> <span className="flex-1">
+                  {inlinePw
+                    ? "The connection string included a password. Unlock the vault to keep it there; until then it isn't saved."
+                    : "The vault is locked. Unlock it to choose or store a password."}
+                </span>
                 <Button size="sm" onClick={() => setUnlockPrompt(true)}>
                   Unlock
                 </Button>
@@ -299,6 +318,14 @@ export function DbEditor() {
               </button>
             ))}
           </div>
+          <div className="mt-3 flex flex-col gap-1">
+            <Checkbox label="Production database" checked={!!d.production || !!via?.production} disabled={!!via?.production} onChange={(v) => set("production", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              {via?.production && !d.production
+                ? `Production because it is reached through ${via.name}. Risky statements always ask first, even with safety Off.`
+                : "Marks its tabs and makes risky statements always ask first, even with safety Off."}
+            </span>
+          </div>
           {d.safety === "read-only" && (
             <p className="mt-2 text-xs text-fg-subtle">
               Shellport asks the server to refuse writes for this session. For a hard guarantee, also connect with a database role that only has read access.
@@ -337,6 +364,47 @@ export function DbEditor() {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** Paste a postgres:// URL to fill the form; its password goes to the vault on save. */
+function ConnectionString({ onParsed }: { onParsed: (u: DbUrl) => void }) {
+  const [url, setUrl] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const fill = async (value = url) => {
+    if (!value.trim()) return;
+    try {
+      onParsed(await api.dbParseUrl(value));
+      setUrl("");
+      setErr(null);
+    } catch (e) {
+      setErr(errMsg(e));
+    }
+  };
+  return (
+    <Field label="Paste a connection string (optional)" className="mb-4" hint={err ?? "postgres://user:password@host:5432/database?sslmode=require. The password is moved to the vault when you save."}>
+      <div className="flex gap-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onPaste={(e) => {
+            const v = e.clipboardData.getData("text");
+            if (/^postgres(ql)?:\/\//i.test(v.trim())) {
+              e.preventDefault();
+              fill(v);
+            }
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), fill())}
+          placeholder="postgres://…"
+          spellCheck={false}
+          aria-invalid={!!err}
+          className={err ? "border-danger" : undefined}
+        />
+        <Button type="button" onClick={() => fill()} disabled={!url.trim()}>
+          Fill in
+        </Button>
+      </div>
+    </Field>
   );
 }
 

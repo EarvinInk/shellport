@@ -21,6 +21,9 @@ const blank = (): Host => ({
   forwards: [],
   keepaliveSecs: null,
   startupCommand: null,
+  production: false,
+  notes: null,
+  sshConfigAlias: null,
   onDisconnect: "reconnect",
   tmuxSession: false,
 });
@@ -182,6 +185,10 @@ export function HostEditor() {
               </div>
             </Field>
           </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Production server" checked={!!h.production} onChange={(v) => set("production", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">Marks its tabs and makes risky actions on it ask first, including databases reached through it.</span>
+          </div>
         </Section>
 
         <Section title="Connection">
@@ -209,6 +216,21 @@ export function HostEditor() {
                   ))}
               </Select>
             </Field>
+          </div>
+          <div className="mt-4 grid grid-cols-[auto_1fr] items-start gap-x-4 gap-y-1">
+            <Checkbox
+              label="Keep in sync with ~/.ssh/config"
+              checked={h.sshConfigAlias != null}
+              onChange={(v) => set("sshConfigAlias", v ? (h.name || h.hostname).trim().replace(/[\s*?!"#=]+/g, "-") || "server" : null)}
+            />
+            {h.sshConfigAlias != null && (
+              <Input className="h-8" value={h.sshConfigAlias} onChange={(e) => set("sshConfigAlias", e.target.value)} placeholder="Host alias in the file" aria-label="Host alias in ~/.ssh/config" />
+            )}
+            <span className="col-span-2 pl-6 text-xs text-fg-subtle">
+              {h.sshConfigAlias != null
+                ? "The file stays the source of truth: changes there show up here, and saving here updates only this host's HostName, User, Port, IdentityFile and ProxyJump lines. Comments and other settings are kept; a backup is saved as config.shellport-backup. Passwords and vault keys stay in Shellport."
+                : "Use the same host from the ssh command line and other tools."}
+            </span>
           </div>
         </Section>
 

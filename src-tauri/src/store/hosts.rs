@@ -80,6 +80,15 @@ pub struct Host {
     /// Run each terminal inside a tmux session that survives disconnects.
     #[serde(default)]
     pub tmux_session: bool,
+    /// A production server: risky actions on it always ask first.
+    #[serde(default)]
+    pub production: bool,
+    /// Markdown notes about this host.
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Kept in sync with this `Host` entry of `~/.ssh/config`.
+    #[serde(default)]
+    pub ssh_config_alias: Option<String>,
 }
 
 fn default_port() -> u16 {
@@ -130,9 +139,22 @@ impl HostStore {
     }
 
     pub fn upsert(&mut self, mut host: Host) -> Result<Host> {
-        if host.hostname.trim().is_empty() {
-            bail!("hostname is required");
+        let addr = super::address::clean_host(&host.hostname)?;
+        host.hostname = addr.host;
+        if host.username.trim().is_empty() {
+            if let Some(u) = addr.user {
+                host.username = u;
+            }
         }
+        if let Some(p) = addr.port {
+            host.port = p;
+        }
+        if let Some(a) = host.ssh_config_alias.as_deref() {
+            if !super::ssh_config_edit::valid_alias(a) {
+                bail!("\"{a}\" can't be used as a name in ~/.ssh/config (no spaces or wildcards)");
+            }
+        }
+        host.notes = host.notes.filter(|n| !n.trim().is_empty());
         if host.name.trim().is_empty() {
             host.name = host.hostname.clone();
         }
@@ -182,6 +204,20 @@ impl HostStore {
             self.save()?;
         }
         Ok(n)
+    }
+
+    /// Store changed copies of existing hosts as they are (no validation),
+    /// e.g. values refreshed from `~/.ssh/config`.
+    pub fn replace_all(&mut self, changed: Vec<Host>) -> Result<()> {
+        if changed.is_empty() {
+            return Ok(());
+        }
+        for c in changed {
+            if let Some(h) = self.hosts.iter_mut().find(|h| h.id == c.id) {
+                *h = c;
+            }
+        }
+        self.save()
     }
 
     /// Add many hosts at once, skipping ones whose name already exists.

@@ -37,12 +37,16 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - **Reconnects on its own** after sleep, Wi-Fi changes or server restarts (per host: reconnect, ask, or close the tab).
 - Optional **tmux sessions** per host, so programs keep running through a dropped connection and reconnecting picks up where you left off.
 - Stays responsive when a command floods the terminal with output.
-- Save hosts in **groups** (Production, Staging, …) with colours and tags.
+- Save hosts in **groups** (Production, Staging, …) with colours and tags, and mark production servers: they get a **PROD** badge everywhere, and databases reached through them always confirm risky statements.
+- **Command palette** (Ctrl+Shift+P): jump to any host, database, tab or action, most used first.
+- **Notes per host** in Markdown; commands in them can be copied or pasted into the host's terminal (never run on their own).
+- **Up/down dots** show which hosts are reachable (a brief check every few minutes; can be turned off).
 - Sign in with a **password, a key in the vault, a key file, or ssh-agent**.
 - **Two-factor (keyboard-interactive) logins**, e.g. one-time codes.
 - **Jump hosts (ProxyJump)**: reach private servers through a bastion.
 - **Port forwarding** (`ssh -L`) per host, with optional auto-start on connect.
-- **Import from `~/.ssh/config`** (including `Include`, `Host *` defaults and `ProxyJump`).
+- **Import from `~/.ssh/config`** (including `Include`, `Host *` defaults and `ProxyJump`), and keep those hosts **in sync both ways**: edits in the file show up in Shellport, and edits in Shellport change only that host's lines, keeping your comments and other settings.
+- **Import and export hosts as CSV or JSON** (no secrets in the file).
 - A **startup command** per host, e.g. `cd /srv/app`.
 - **Hide the sidebar** (Ctrl+Shift+B) when you want the whole window for the terminal.
 
@@ -74,6 +78,7 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - Connect **directly or through any saved SSH host**. The tunnel is private to Shellport (an ephemeral port on 127.0.0.1) and honours jump hosts.
 - Passwords live in the **vault**; TLS modes from *disable* to *verify-full*.
 - Run whole scripts or just the selection (Ctrl+Enter), **cancel** long queries, cap rows per statement, see server notices, copy cells or results as TSV.
+- Paste a **`postgres://` connection string** to fill in a connection; its password goes to the vault.
 - **Safe on production**: per connection, choose *Confirm risky* (asks before `UPDATE`/`DELETE` without `WHERE`, `DROP`, `TRUNCATE`) or *Read-only*; the connection's colour marks its tabs.
 - An **open-transaction** indicator with Commit / Rollback, and a warning before closing a tab would roll it back.
 - Large results stay fast: only the requested rows leave the server, and the grid draws just what is on screen.
@@ -158,6 +163,7 @@ To update, download the newer `.deb` and run the same command.
 | Ctrl+Shift+W | Close tab |
 | Ctrl+PgUp / Ctrl+PgDn | Previous / next tab |
 | Ctrl+Shift+B | Show / hide the sidebar |
+| Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste in the terminal |
 | Ctrl+Shift+F | Search in the terminal or logs |
 | Middle-click a tab | Close it |

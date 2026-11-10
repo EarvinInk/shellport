@@ -44,6 +44,9 @@ pub struct DbProfile {
     pub ssl_mode: SslMode,
     #[serde(default)]
     pub safety: Safety,
+    /// A production database: risky statements always ask first.
+    #[serde(default)]
+    pub production: bool,
     /// Engine-specific settings, so new engines need no schema change.
     #[serde(default)]
     pub options: BTreeMap<String, String>,
@@ -51,6 +54,18 @@ pub struct DbProfile {
     pub color: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+impl DbProfile {
+    /// The safety level that applies: on a production connection (or one
+    /// reached through a production host) risky statements always ask first.
+    pub fn effective_safety(&self, host_production: bool) -> Safety {
+        if (self.production || host_production) && self.safety == Safety::Off {
+            Safety::Confirm
+        } else {
+            self.safety
+        }
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -97,9 +112,18 @@ impl DbStore {
     }
 
     pub fn upsert(&mut self, mut db: DbProfile) -> Result<DbProfile> {
-        db.host = db.host.trim().to_string();
-        if db.host.is_empty() {
+        if db.host.trim().is_empty() {
             bail!("host is required");
+        }
+        let addr = super::address::clean_host(&db.host)?;
+        db.host = addr.host;
+        if let Some(p) = addr.port {
+            db.port = p;
+        }
+        if db.username.trim().is_empty() {
+            if let Some(u) = addr.user {
+                db.username = u;
+            }
         }
         if db.port == 0 {
             bail!("port is required");
@@ -178,6 +202,7 @@ mod tests {
             via_host_id: Some("h1".into()),
             ssl_mode: SslMode::Prefer,
             safety: Safety::Confirm,
+            production: false,
             options: BTreeMap::new(),
             color: None,
             tags: vec!["".into(), "prod".into()],
@@ -214,6 +239,29 @@ mod tests {
         let saved = s.upsert(profile()).unwrap();
         s.host_deleted("h1").unwrap();
         assert!(s.get(&saved.id).unwrap().via_host_id.is_none());
+    }
+
+    #[test]
+    fn production_never_runs_without_confirmation() {
+        let mut p = profile();
+        p.safety = Safety::Off;
+        assert_eq!(p.effective_safety(false), Safety::Off);
+        assert_eq!(p.effective_safety(true), Safety::Confirm);
+        p.production = true;
+        assert_eq!(p.effective_safety(false), Safety::Confirm);
+        p.safety = Safety::ReadOnly;
+        assert_eq!(p.effective_safety(true), Safety::ReadOnly);
+    }
+
+    #[test]
+    fn pasted_hosts_are_cleaned() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = DbStore::load(dir.path().join("databases.json")).unwrap();
+        let mut p = profile();
+        p.host = "postgres://db.example.com:6543/".into();
+        p.username = String::new();
+        let saved = s.upsert(p).unwrap();
+        assert_eq!((saved.host.as_str(), saved.port), ("db.example.com", 6543));
     }
 
     #[test]

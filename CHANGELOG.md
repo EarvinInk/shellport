@@ -5,6 +5,14 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 ## [Unreleased]
 
 ### Added
+- Production marker for hosts and database connections: a PROD badge on rows, tabs and the palette, and risky SQL always asks first on a production connection (or one reached through a production host).
+- Command palette (Ctrl+Shift+P) for hosts, databases, open tabs and app actions, ranked by use.
+- Markdown notes per host; code blocks can be copied or pasted into the host's terminal without running.
+- Up/down dots for hosts (a brief SSH greeting every few minutes while visible; can be turned off in Settings).
+- Hosts imported from `~/.ssh/config` stay in sync with it both ways; Shellport edits only that host's HostName, User, Port, IdentityFile and ProxyJump lines and keeps a backup.
+- Import and export hosts as CSV or JSON.
+- Paste a `postgres://` connection string to fill in a database connection.
+- Host and database address fields clean up pasted values (`user@host:port`, `ssh://…`, trailing `/`).
 - Databases: a built-in PostgreSQL client with saved connections, a schema browser, a SQL editor (Ctrl+Enter runs the script or the selection), a result grid, query cancel, row limits and server notices.
 - Database connections can go through any saved SSH host (including jump hosts) over a private tunnel; passwords are kept in the vault.
 - Database support is driver-based, so more engines can be added without changing the rest of the app.

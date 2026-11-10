@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, errMsg } from "./lib/ipc";
-import type { DbProfile, Host, SecretMeta, Settings, VaultStatus } from "./lib/types";
+import type { DbProfile, Host, HostStatus, SecretMeta, Settings, VaultStatus } from "./lib/types";
 
 export type Tab =
   | { id: string; kind: "local"; title: string }
@@ -35,6 +35,14 @@ interface AppStore {
   /** Number of connected tabs per database profile id. */
   dbLive: Record<string, number>;
   dbLiveAdd: (id: string, delta: number) => void;
+  /** Reachability per host id (M1.5). */
+  hostStatus: Record<string, HostStatus["up"]>;
+  refreshHostStatus: () => Promise<void>;
+  paletteOpen: boolean;
+  setPaletteOpen: (o: boolean) => void;
+  /** Host whose notes are open. */
+  notesHost: string | null;
+  setNotesHost: (id: string | null) => void;
   /** Number of tabs with an open transaction per database profile id. */
   dbTx: Record<string, number>;
   dbTxAdd: (id: string, delta: number) => void;
@@ -94,6 +102,18 @@ export function setCloseGuard(tabId: string, guard: (() => Promise<boolean>) | n
   else closeGuards.delete(tabId);
 }
 
+/** Paste into a terminal tab as if the user pasted (respects bracketed paste,
+ * so nothing runs until Enter). Lets notes and the palette hand text over. */
+type Paster = (text: string) => void | Promise<void>;
+const terminalPasters = new Map<string, Paster>();
+export function setTerminalPaster(tabId: string, paste: Paster | null) {
+  if (paste) terminalPasters.set(tabId, paste);
+  else terminalPasters.delete(tabId);
+}
+export function terminalPaster(tabId: string): Paster | undefined {
+  return terminalPasters.get(tabId);
+}
+
 /** Runs when the user closes a tab (not when it unmounts for other reasons). */
 const tabCloseHooks = new Map<string, () => void>();
 export function onTabClosed(tabId: string, hook: (() => void) | null) {
@@ -111,6 +131,19 @@ export const useApp = create<AppStore>((set, get) => ({
   dbLive: {},
   dbLiveAdd: (id, delta) => set((s) => ({ dbLive: bump(s.dbLive, id, delta) })),
   dbTx: {},
+  hostStatus: {},
+  refreshHostStatus: async () => {
+    try {
+      const list = await api.hostsStatus();
+      set({ hostStatus: Object.fromEntries(list.map((h) => [h.id, h.up])) });
+    } catch {
+      /* not critical */
+    }
+  },
+  paletteOpen: false,
+  setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  notesHost: null,
+  setNotesHost: (notesHost) => set({ notesHost }),
   dbTxAdd: (id, delta) => set((s) => ({ dbTx: bump(s.dbTx, id, delta) })),
   setDbEditor: (dbEditor) => set({ dbEditor }),
   refreshDbs: async () => {

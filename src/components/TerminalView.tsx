@@ -9,7 +9,7 @@ import { RotateCcw, Search, WifiOff, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, b64ToBytes, binaryStringToB64, errMsg, type Opener } from "../lib/ipc";
 import type { TermEvent } from "../lib/types";
-import { useApp } from "../store";
+import { setTerminalPaster, useApp } from "../store";
 import { Button, IconButton } from "./ui";
 
 export const THEMES: Record<string, ITheme> = {
@@ -123,6 +123,8 @@ interface Props {
   probeHostId?: string;
   /** Close the tab (used by the "close" disconnect policy). */
   onCloseTab?: () => void;
+  /** Tab id: registers a paster so notes and the palette can hand text to this terminal. */
+  tabId?: string;
 }
 
 type Status = "connecting" | "open" | "closed" | "error" | "lost";
@@ -135,7 +137,7 @@ const FATAL = /unlock the vault|authentication|permission denied|host key|no .* 
 const FLOW_HIGH = 2 * 1024 * 1024;
 const FLOW_LOW = 512 * 1024;
 
-export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar, onLost, probeHostId, onCloseTab }: Props) {
+export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar, onLost, probeHostId, onCloseTab, tabId }: Props) {
   const settings = useApp((s) => s.settings);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -313,6 +315,24 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Let other features paste into this terminal (only while it is connected).
+  useEffect(() => {
+    if (!tabId || readOnly) return;
+    setTerminalPaster(tabId, async (text) => {
+      const t = term.current;
+      if (!t || !sessionId.current) return;
+      const multi = /\r|\n/.test(text.replace(/\s+$/, ""));
+      // Without bracketed paste the shell would run each line at once.
+      if (multi && !t.modes.bracketedPasteMode) {
+        const ok = await ask("This shell runs each pasted line immediately. Paste anyway?", { title: "Paste several lines?", kind: "warning", okLabel: "Paste" });
+        if (!ok) return;
+      }
+      t.paste(multi ? text : text.replace(/[\r\n]+$/, ""));
+      t.focus();
+    });
+    return () => setTerminalPaster(tabId, null);
+  }, [tabId, readOnly]);
 
   // Apply settings changes live.
   useEffect(() => {

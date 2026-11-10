@@ -1,17 +1,20 @@
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
-import { Box, Database, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
+import { Box, Database, Search, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPromptDialog, HostKeyDialog, Toasts, UnlockDialog, useAppErrors } from "./components/Dialogs";
 import { DatabasesSidebar } from "./components/DatabasesSidebar";
+import { CommandPalette } from "./components/CommandPalette";
 import { DbEditor } from "./components/DbEditor";
+import { NotesDialog } from "./components/NotesDialog";
 import { ForwardsDialog } from "./components/ForwardsDialog";
 import { HostEditor } from "./components/HostEditor";
 import { DockerSidebar, HostsSidebar } from "./components/HostsSidebar";
 import { ImportDialog } from "./components/ImportDialog";
 import { TerminalView } from "./components/TerminalView";
-import { Empty } from "./components/ui";
+import { Empty, ProdBadge } from "./components/ui";
 import { api } from "./lib/ipc";
+import { onWindowFocus } from "./lib/windowFocus";
 import { onTabClosed, useApp, type Tab } from "./store";
 import { DbView } from "./views/DbView";
 import { DockerView, ExecView, LogsView, MultiLogsView } from "./views/DockerView";
@@ -46,7 +49,7 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
   const renameTab = useApp((s) => s.renameTab);
   switch (t.kind) {
     case "local":
-      return <TerminalView active={active} onTitle={(x) => renameTab(t.id, x)} open={(c, r, ch) => api.termOpenLocal(c, r, ch)} />;
+      return <TerminalView tabId={t.id} active={active} onTitle={(x) => renameTab(t.id, x)} open={(c, r, ch) => api.termOpenLocal(c, r, ch)} />;
     case "ssh":
       return <SshTerminal tabId={t.id} hostId={t.hostId} active={active} />;
     case "sftp":
@@ -97,6 +100,37 @@ export default function App() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Host up/down dots (M1.5): a brief check every 5 minutes and on focus,
+  // only while the window is visible and the setting is on.
+  const statusOn = useApp((s) => s.settings?.hostStatusChecks ?? true);
+  const hostCount = useApp((s) => s.hosts.length);
+  useEffect(() => {
+    if (!statusOn || hostCount === 0) return;
+    let last = 0;
+    const check = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      useApp.getState().refreshHostStatus();
+    };
+    check();
+    const iv = setInterval(() => ((last = 0), check()), 5 * 60_000);
+    const offFocus = onWindowFocus(check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(iv);
+      offFocus();
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [statusOn, hostCount]);
+
+  // Hosts linked to ~/.ssh/config: pick up edits made in the file when the
+  // window comes back into focus.
+  const linked = useApp((s) => s.hosts.some((h) => h.sshConfigAlias));
+  useEffect(() => {
+    if (!linked) return;
+    return onWindowFocus(() => useApp.getState().refreshHosts());
+  }, [linked]);
+
   // Persist open tabs (debounced) once the previous session has been restored.
   const sessionReady = useApp((s) => s.sessionReady);
   useEffect(() => {
@@ -116,6 +150,10 @@ export default function App() {
       if (e.ctrlKey && e.shiftKey && e.code === "KeyT") {
         e.preventDefault();
         openTab({ kind: "local", title: "Local" });
+      }
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyP") {
+        e.preventDefault();
+        useApp.getState().setPaletteOpen(!useApp.getState().paletteOpen);
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
         e.preventDefault();
@@ -209,6 +247,7 @@ export default function App() {
                 <TabIcon t={t} />
               </span>
               <span className="truncate">{t.title}</span>
+              {tabProduction(t) && <ProdBadge />}
               <button
                 className="rounded p-0.5 opacity-50 hover:bg-surface-4 hover:opacity-100 cursor-pointer"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -221,10 +260,20 @@ export default function App() {
           ))}
           <button
             title="New local terminal (Ctrl+Shift+T)"
-            className="mb-1 ml-1 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+            aria-label="New local terminal"
+            className="mb-1 ml-1 shrink-0 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
             onClick={() => openTab({ kind: "local", title: "Local" })}
           >
             <Plus size={14} />
+          </button>
+          <div className="flex-1" />
+          <button
+            title="Search hosts, tabs and actions (Ctrl+Shift+P)"
+            aria-label="Open command palette"
+            className="mb-1 mr-1 flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+            onClick={() => useApp.getState().setPaletteOpen(true)}
+          >
+            <Search size={13} /> <kbd className="font-mono text-[10px] text-fg-subtle">Ctrl+Shift+P</kbd>
           </button>
         </div>
         <div className="relative min-h-0 flex-1">
@@ -248,6 +297,8 @@ export default function App() {
       <AuthPromptDialog />
       <ForwardsDialog />
       <UnlockDialog />
+      <NotesDialog />
+      <CommandPalette />
       <Toasts />
     </div>
   );
@@ -266,6 +317,7 @@ function SshTerminal({ tabId, hostId, active }: { tabId: string; hostId: string;
   }, [tmux, tabId, hostId]);
   return (
     <TerminalView
+      tabId={tabId}
       active={active}
       open={(c, r, ch) => api.termOpenSsh(hostId, c, r, ch, tabId)}
       onLost={host?.onDisconnect ?? "reconnect"}
@@ -273,6 +325,18 @@ function SshTerminal({ tabId, hostId, active }: { tabId: string; hostId: string;
       onCloseTab={() => closeTab(tabId)}
     />
   );
+}
+
+/** Whether a tab belongs to a Production host or database (directly or via its SSH host). */
+function tabProduction(t: Tab): boolean {
+  const { hosts, dbs } = useApp.getState();
+  if (t.kind === "db") {
+    const d = dbs.find((x) => x.id === t.dbId);
+    return !!d && (!!d.production || !!hosts.find((h) => h.id === d.viaHostId)?.production);
+  }
+  if ("hostId" in t) return !!hosts.find((h) => h.id === t.hostId)?.production;
+  if ("endpoint" in t) return !!hosts.find((h) => h.id === t.endpoint)?.production;
+  return false;
 }
 
 /** The colour of the host or database a tab belongs to, shown as a stripe so production stands out. */
