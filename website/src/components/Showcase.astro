@@ -1,0 +1,134 @@
+---
+import Icon, { type IconName } from './Icon.astro';
+import AppWindow from './AppWindow.astro';
+import terminal from '../assets/screenshots/terminal.png';
+import sftp from '../assets/screenshots/sftp.png';
+import docker from '../assets/screenshots/docker.png';
+import logs from '../assets/screenshots/logs.png';
+import vault from '../assets/screenshots/vault.png';
+
+const tabs: { id: string; icon: IconName; label: string; title: string; body: string; points: string[]; img: ImageMetadata; alt: string; doc: string }[] = [
+  {
+    id: 'terminals', icon: 'terminal', label: 'Terminals',
+    title: 'Every server, one click away',
+    body: 'Save hosts in colour-coded groups, then connect with a double-click. Tabs, search, themes and one-click reconnect come standard.',
+    points: ['Password, vault key, key file or ssh-agent', 'Jump hosts (ProxyJump) and 2FA logins', 'Import straight from ~/.ssh/config'],
+    img: terminal, alt: 'Tabbed SSH terminal with grouped saved hosts', doc: '/docs/hosts-and-ssh/',
+  },
+  {
+    id: 'sftp', icon: 'folder', label: 'SFTP',
+    title: 'Move files without leaving the app',
+    body: 'A dual-pane local ↔ remote browser that handles whole folders, with progress, cancel and overwrite checks.',
+    points: ['Drag and drop from your desktop', 'Rename, chmod, create and delete remotely', 'Never writes outside the folder you choose'],
+    img: sftp, alt: 'Dual-pane SFTP file manager', doc: '/docs/sftp/',
+  },
+  {
+    id: 'docker', icon: 'box', label: 'Docker',
+    title: 'Containers, local or over SSH',
+    body: 'Manage the local engine or any server you can SSH into, with no Docker port exposed. Containers are grouped by Compose project.',
+    points: ['Start, stop, restart, exec into a shell', 'Images, volumes, networks and prune', 'Pull from private registries'],
+    img: docker, alt: 'Docker view listing a Compose project', doc: '/docs/docker/',
+  },
+  {
+    id: 'logs', icon: 'logs', label: 'Logs',
+    title: 'A whole stack’s logs, merged',
+    body: 'Follow one container or every container in a Compose project at once, interleaved in time order and colour-coded by service.',
+    points: ['Live streaming with search', 'Colour per container', 'Works over SSH too'],
+    img: logs, alt: 'Merged colour-coded logs from a Compose project', doc: '/docs/docker/#live-logs',
+  },
+  {
+    id: 'vault', icon: 'shield', label: 'Vault',
+    title: 'Secrets that stay yours',
+    body: 'Passwords, private keys and API tokens live in one encrypted file, unlocked by a master password only you know.',
+    points: ['Argon2id + XChaCha20-Poly1305', 'Generate ed25519 keys in-app', 'Auto-lock and optional keyring unlock'],
+    img: vault, alt: 'The vault holding passwords and a private key', doc: '/docs/vault/',
+  },
+];
+---
+<section class="section showcase" id="features">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Everything in one place</span>
+      <h2>Stop juggling five tools to ship one fix</h2>
+      <p>Terminal, file transfer, container control and secrets, built to work together.</p>
+    </div>
+
+    <div class="tabs reveal" role="tablist" aria-label="Shellport features">
+      {tabs.map((t, i) => (
+        <button role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>
+          <Icon name={t.icon} size={17} />{t.label}
+        </button>
+      ))}
+    </div>
+
+    <div class="panels reveal">
+      {tabs.map((t, i) => (
+        <div class="panel" role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={i !== 0}>
+          <div class="text">
+            <div class="icon-badge"><Icon name={t.icon} /></div>
+            <h3>{t.title}</h3>
+            <p>{t.body}</p>
+            <ul>{t.points.map((p) => <li><Icon name="check" size={16} />{p}</li>)}</ul>
+            <a class="more" href={t.doc}>Read the guide <Icon name="arrowRight" size={15} /></a>
+          </div>
+          <div class="shot"><AppWindow src={t.img} alt={t.alt} title={`Shellport — ${t.label}`} /></div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .tabs {
+    display: flex; gap: 4px; padding: 5px; margin: 0 auto 40px; width: fit-content; max-width: 100%;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  [role='tab'] {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    padding: 9px 18px; border: 0; border-radius: 10px; background: none;
+    color: var(--fg-muted); font-size: 14.5px; font-weight: 550; cursor: pointer;
+    transition: color .2s, background .2s;
+  }
+  [role='tab']:hover { color: var(--fg); }
+  [role='tab'][aria-selected='true'] { background: var(--surface-3); color: var(--fg); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
+  [role='tab'][aria-selected='true'] :global(svg) { color: var(--accent-soft); }
+
+  .panel { display: grid; grid-template-columns: 0.72fr 1.6fr; gap: 56px; align-items: center; animation: fade .45s ease; }
+  .panel[hidden] { display: none; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } }
+  .text h3 { font-size: 28px; margin: 22px 0 14px; }
+  .text p { color: var(--fg-muted); font-size: 16.5px; }
+  .text ul { list-style: none; padding: 0; margin: 22px 0 26px; display: grid; gap: 11px; }
+  .text li { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+  .text li :global(svg) { color: var(--accent-soft); margin-top: 4px; flex: none; }
+  .more { display: inline-flex; align-items: center; gap: 6px; font-weight: 560; color: var(--accent-soft); }
+  .more:hover { gap: 9px; }
+  .more { transition: gap .2s; }
+  @media (max-width: 960px) {
+    .panel { grid-template-columns: 1fr; gap: 32px; }
+    .shot { order: -1; }
+  }
+</style>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.showcase [role="tab"]'));
+  const select = (tab: HTMLButtonElement, focus = false) => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')!)!.hidden = !on;
+    }
+    if (focus) tab.focus();
+    tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => select(t));
+    t.addEventListener('keydown', (e) => {
+      const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) { e.preventDefault(); select(tabs[(i + d + tabs.length) % tabs.length], true); }
+    });
+  });
+</script>

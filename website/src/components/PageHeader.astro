@@ -1,0 +1,23 @@
+---
+interface Props { eyebrow: string; title: string; lead?: string }
+const { eyebrow, title, lead } = Astro.props;
+---
+<section class="page-header">
+  <div class="bg-grid"></div>
+  <div class="bg-glow glow"></div>
+  <div class="container inner">
+    <span class="eyebrow">{eyebrow}</span>
+    <h1 set:html={title} />
+    {lead && <p>{lead}</p>}
+    <slot />
+  </div>
+</section>
+<style>
+  .page-header { position: relative; overflow: hidden; padding: 88px 0 56px; text-align: center; }
+  .glow { width: 900px; height: 420px; left: 50%; top: -260px; transform: translateX(-50%); opacity: .6; }
+  .inner { position: relative; display: flex; flex-direction: column; align-items: center; animation: rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  h1 { margin-top: 16px; font-size: clamp(36px, 5.6vw, 60px); font-weight: 700; letter-spacing: -0.04em; max-width: 860px; }
+  p { margin-top: 18px; max-width: 620px; font-size: clamp(16.5px, 1.8vw, 19px); color: var(--fg-muted); }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  @media (max-width: 640px) { .page-header { padding: 56px 0 36px; } }
+</style>

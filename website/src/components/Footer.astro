@@ -1,0 +1,113 @@
+---
+import Logo from './Logo.astro';
+import Icon from './Icon.astro';
+import { site } from '../site.config';
+const year = new Date(site.releaseDate).getFullYear();
+---
+<footer class="footer">
+  <div class="container">
+    <div class="top">
+      <div class="about">
+        <a href="/" aria-label="Shellport home"><Logo /></a>
+        <p>{site.tagline} Free and open source, with no accounts and no telemetry.</p>
+        <div class="social">
+          <a href={site.repo} aria-label="GitHub" rel="noopener"><Icon name="github" size={18} /></a>
+          <a href={`mailto:${site.author.email}`} aria-label="Email"><Icon name="mail" size={18} /></a>
+          <a href={site.author.url} aria-label={site.author.domainLabel}><Icon name="globe" size={18} /></a>
+        </div>
+      </div>
+
+      <div class="col">
+        <h3>Product</h3>
+        <a href="/#features">Features</a>
+        <a href="/download/">Download</a>
+        <a href="/docs/">Documentation</a>
+        <a href={site.links.changelog} rel="noopener">Changelog</a>
+        <a href={site.repo} rel="noopener">Source code</a>
+      </div>
+
+      <div class="col">
+        <h3>Support</h3>
+        <a href="/contact/">Contact</a>
+        <a href="/donate/">Donate</a>
+        <a href="/docs/troubleshooting/">Troubleshooting</a>
+        <a href="/docs/security/">Security</a>
+        <a href={site.links.issues} rel="noopener">Report an issue</a>
+      </div>
+
+      <div class="col more">
+        <h3>More from {site.author.name}</h3>
+        <a href={site.author.url} class="home-link">
+          <span class="dot"><Icon name="globe" size={15} /></span>
+          <span><strong>{site.author.domainLabel}</strong><small>Personal site &amp; blog</small></span>
+        </a>
+        {site.otherProjects.map((p) => (
+          <a href={p.url} class="project">
+            <span class="dot">{p.name.charAt(0)}</span>
+            <span><strong>{p.name}</strong><small>{p.description}</small></span>
+          </a>
+        ))}
+      </div>
+    </div>
+
+    <div class="bottom">
+      <p>© {year} {site.author.name}. Released under the <a href={site.links.license} rel="noopener">MIT license</a>.</p>
+      <p class="part-of">
+        A project by <a href={site.author.url}>{site.author.domainLabel}<Icon name="arrowRight" size={14} /></a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg), var(--bg-elev));
+    padding: 72px 0 32px;
+    font-size: 14.5px;
+  }
+  .top { display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 1.4fr; gap: 48px; }
+  .about p { color: var(--fg-muted); margin: 18px 0 22px; max-width: 320px; }
+  .social { display: flex; gap: 8px; }
+  .social a {
+    width: 38px; height: 38px; display: grid; place-items: center;
+    border: 1px solid var(--border); border-radius: 10px; color: var(--fg-muted);
+    transition: color .2s, border-color .2s;
+  }
+  .social a:hover { color: var(--fg); border-color: var(--border-strong); }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); font-weight: 600; margin-bottom: 16px; }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .col > a:not(.project):not(.home-link) { color: var(--fg-muted); width: fit-content; transition: color .2s; }
+  .col > a:hover { color: var(--fg); }
+  .more { gap: 6px; }
+  .project, .home-link {
+    display: flex; gap: 12px; align-items: center;
+    padding: 8px 10px; margin: 0 -10px; border-radius: 10px;
+    transition: background .2s;
+  }
+  .project:hover, .home-link:hover { background: var(--surface-2); }
+  .dot {
+    flex: none; width: 30px; height: 30px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: var(--surface-3); color: var(--fg-muted);
+    font-size: 13px; font-weight: 700;
+  }
+  .home-link .dot { background: var(--accent-bg); color: var(--accent-soft); }
+  .project strong, .home-link strong { display: block; font-weight: 560; color: var(--fg); font-size: 14px; }
+  .project small, .home-link small { display: block; color: var(--fg-subtle); font-size: 12.5px; line-height: 1.4; }
+  .bottom {
+    margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    color: var(--fg-subtle); font-size: 13.5px;
+  }
+  .bottom a { color: var(--fg-muted); }
+  .bottom a:hover { color: var(--fg); }
+  .part-of a { display: inline-flex; align-items: center; gap: 4px; font-weight: 550; }
+  @media (max-width: 960px) {
+    .top { grid-template-columns: 1fr 1fr; }
+    .about, .more { grid-column: span 2; }
+  }
+  @media (max-width: 480px) {
+    .top { gap: 36px; }
+  }
+</style>

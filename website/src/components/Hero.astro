@@ -1,0 +1,109 @@
+---
+import Icon from './Icon.astro';
+import AppWindow from './AppWindow.astro';
+import { site } from '../site.config';
+import docker from '../assets/screenshots/docker.png';
+---
+<section class="hero">
+  <div class="bg-grid"></div>
+  <div class="bg-glow g1"></div>
+  <div class="bg-glow g2"></div>
+
+  <div class="container copy">
+    <a class="pill rise" style="--d:0ms" href={site.links.changelog} rel="noopener">
+      <span class="tag">v{site.version}</span> Now available for Linux <Icon name="arrowRight" size={14} />
+    </a>
+    <h1 class="rise" style="--d:60ms">
+      Your servers, files and containers.<br />
+      <span class="grad-text">One native window.</span>
+    </h1>
+    <p class="lead rise" style="--d:120ms">
+      Shellport brings SSH terminals, a dual-pane SFTP manager, Docker control and an
+      encrypted secrets vault together in a single fast desktop app for Linux.
+    </p>
+    <div class="ctas rise" style="--d:180ms">
+      <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download for Linux</a>
+      <a class="btn btn-ghost btn-lg" href={site.repo} rel="noopener"><Icon name="github" />Star on GitHub</a>
+    </div>
+    <ul class="trust rise" style="--d:240ms" aria-label="Highlights">
+      <li><Icon name="check" size={16} />Free &amp; open source (MIT)</li>
+      <li><Icon name="check" size={16} />No accounts, no telemetry</li>
+      <li><Icon name="check" size={16} />.deb and AppImage</li>
+    </ul>
+  </div>
+
+  <div class="container stage rise" style="--d:320ms">
+    <div class="tilt">
+      <AppWindow src={docker} alt="Shellport managing the containers of a Docker Compose project" title="Shellport — Local · docker" eager />
+    </div>
+    <div class="float f1" aria-hidden="true">
+      <span class="ok"></span><div><strong>4/4 running</strong><small>acme-shop · compose</small></div>
+    </div>
+    <div class="float f2" aria-hidden="true">
+      <Icon name="lock" size={16} /><div><strong>Vault locked</strong><small>XChaCha20-Poly1305</small></div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero { position: relative; padding: 72px 0 40px; overflow: hidden; }
+  .g1 { width: 1100px; height: 520px; left: 50%; top: -300px; transform: translateX(-50%); opacity: .7; }
+  .g2 { width: 900px; height: 420px; left: 50%; top: 640px; transform: translateX(-50%); opacity: .45; }
+  .copy { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .pill { transition: border-color .2s; }
+  .pill:hover { border-color: var(--fg-subtle); }
+  h1 {
+    margin-top: 28px;
+    font-size: clamp(40px, 7vw, 78px);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+    max-width: 980px;
+  }
+  .lead { margin-top: 24px; max-width: 640px; font-size: clamp(17px, 2vw, 20px); color: var(--fg-muted); line-height: 1.55; }
+  .ctas { margin-top: 36px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .trust {
+    list-style: none; padding: 0; margin: 28px 0 0;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 26px;
+    font-size: 14px; color: var(--fg-muted);
+  }
+  .trust li { display: flex; align-items: center; gap: 7px; }
+  .trust :global(svg) { color: var(--ok); }
+
+  .stage { position: relative; margin-top: 72px; max-width: 1180px; perspective: 2000px; }
+  .tilt { transform-origin: 50% 0; animation: untilt 1.4s .35s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes untilt { from { transform: rotateX(14deg) scale(.96); } to { transform: none; } }
+  .stage::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 32%;
+    background: linear-gradient(transparent, var(--bg));
+    pointer-events: none;
+  }
+  .float {
+    position: absolute; z-index: 2;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-radius: 14px;
+    background: color-mix(in srgb, var(--surface-1) 85%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 20px 40px -18px rgba(0,0,0,.6);
+    font-size: 13px; line-height: 1.3;
+    animation: bob 6s ease-in-out infinite;
+  }
+  .float strong { display: block; font-weight: 600; }
+  .float small { color: var(--fg-muted); font-family: var(--font-mono); font-size: 11.5px; }
+  .f1 { left: -12px; top: 22%; }
+  .f2 { right: -12px; top: 52%; animation-delay: -3s; color: var(--accent-soft); }
+  .f2 div { color: var(--fg); }
+  .ok { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(34,197,94,.18); }
+  .rise { animation: rise .8s var(--d, 0ms) cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+  @keyframes bob { 50% { transform: translateY(-8px); } }
+
+  @media (max-width: 900px) { .float { display: none; } .stage { margin-top: 48px; } }
+  @media (max-width: 520px) {
+    .hero { padding-top: 44px; }
+    h1 br { display: none; }
+    .ctas { width: 100%; flex-direction: column; }
+    .ctas .btn { width: 100%; }
+  }
+</style>

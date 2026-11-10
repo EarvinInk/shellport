@@ -1,0 +1,208 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Showcase from '../components/Showcase.astro';
+import Icon, { type IconName } from '../components/Icon.astro';
+import AppWindow from '../components/AppWindow.astro';
+import CodeBlock from '../components/CodeBlock.astro';
+import { site } from '../site.config';
+import hostkey from '../assets/screenshots/hostkey.png';
+
+const features: { icon: IconName; title: string; body: string }[] = [
+  { icon: 'route', title: 'Jump hosts', body: 'Reach private servers through a bastion with ProxyJump, configured per host.' },
+  { icon: 'phone', title: 'Two-factor logins', body: 'Keyboard-interactive auth for one-time codes and other 2FA prompts.' },
+  { icon: 'arrows', title: 'Port forwarding', body: 'Per-host ssh -L tunnels that can start automatically when you connect.' },
+  { icon: 'fileImport', title: 'Import ~/.ssh/config', body: 'Brings in Include, Host * defaults and ProxyJump, so setup takes seconds.' },
+  { icon: 'server', title: 'Remote Docker', body: 'Control Docker on any SSH host, tunnelled. No exposed daemon port.' },
+  { icon: 'key', title: 'ed25519 key generation', body: 'Create keys inside the vault and copy the public key for authorized_keys.' },
+  { icon: 'timer', title: 'Auto-lock', body: 'The vault locks itself after a period of inactivity that you choose.' },
+  { icon: 'sliders', title: 'Make it yours', body: 'Four terminal themes, fonts, cursor styles and a startup command per host.' },
+];
+
+const security: { icon: IconName; title: string; body: string }[] = [
+  { icon: 'lock', title: 'Strong vault encryption', body: 'Argon2id (64 MiB, 3 passes) key derivation and XChaCha20-Poly1305. Tampering is detected.' },
+  { icon: 'shieldAlert', title: 'Strict host-key checks', body: 'Verified against ~/.ssh/known_hosts. A changed key is blocked before any secret is sent.' },
+  { icon: 'eyeOff', title: 'Nothing phones home', body: 'No telemetry, no accounts, no cloud. Shellport only talks to servers you choose.' },
+];
+
+const stats = [
+  { value: '~7 MB', label: '.deb download' },
+  { value: 'Rust', label: 'Native core (Tauri 2)' },
+  { value: '0', label: 'Trackers or accounts' },
+  { value: 'MIT', label: 'Open-source license' },
+];
+---
+<Base>
+  <Hero />
+
+  <section class="stats-strip">
+    <div class="container stats reveal">
+      {stats.map((s) => <div><strong>{s.value}</strong><span>{s.label}</span></div>)}
+    </div>
+  </section>
+
+  <Showcase />
+
+  <section class="section grid-section">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Built for real infrastructure</span>
+        <h2>The details that save you time every day</h2>
+      </div>
+      <div class="feature-grid">
+        {features.map((f, i) => (
+          <div class="card hoverable reveal" style={`transition-delay:${(i % 4) * 60}ms`}>
+            <div class="icon-badge"><Icon name={f.icon} /></div>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section security">
+    <div class="bg-glow sg"></div>
+    <div class="container sec-grid">
+      <div class="sec-copy reveal">
+        <span class="eyebrow"><Icon name="shield" size={15} />Safe by default</span>
+        <h2>Security you don’t have to configure</h2>
+        <p class="muted">Every connection is verified, every secret is encrypted, and nothing leaves your machine unless you ask it to.</p>
+        <div class="sec-list">
+          {security.map((s) => (
+            <div class="sec-item">
+              <div class="icon-badge"><Icon name={s.icon} /></div>
+              <div><h3>{s.title}</h3><p>{s.body}</p></div>
+            </div>
+          ))}
+        </div>
+        <a class="btn btn-ghost" href="/docs/security/">How Shellport protects you <Icon name="arrowRight" /></a>
+      </div>
+      <div class="sec-shot reveal">
+        <AppWindow src={hostkey} alt="Unknown host key prompt showing the server's SHA256 fingerprint" title="Shellport — Verify host" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section install">
+    <div class="container">
+      <div class="install-card reveal">
+        <div class="bg-grid"></div>
+        <div class="install-copy">
+          <span class="eyebrow">Get started in a minute</span>
+          <h2>Install with one command</h2>
+          <p class="muted">Download the .deb for Ubuntu, Debian and Mint, or the AppImage for any distribution. apt pulls in everything else.</p>
+          <div class="install-ctas">
+            <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download v{site.version}</a>
+            <a class="btn btn-text" href="/docs/getting-started/">Read the quick start <Icon name="arrowRight" /></a>
+          </div>
+        </div>
+        <div class="install-term">
+          <div class="term-bar"><i></i><i></i><i></i><span>~/Downloads</span></div>
+          <CodeBlock lines={['sudo apt install ./Shellport_*_amd64.deb', 'shellport']} class="term-code" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section support">
+    <div class="container support-grid">
+      <a class="card support-card donate reveal" href="/donate/">
+        <div class="icon-badge heart"><Icon name="heart" /></div>
+        <h2>Support Shellport</h2>
+        <p class="muted">Shellport is free and built in spare time. If it saves you time, a small donation keeps updates coming.</p>
+        <div class="platforms">
+          <span><Icon name="github" size={16} />Sponsors</span>
+          <span><Icon name="kofi" size={16} />Ko-fi</span>
+          <span><Icon name="coffee" size={16} />Buy Me a Coffee</span>
+        </div>
+        <span class="go">Become a supporter <Icon name="arrowRight" size={16} /></span>
+      </a>
+      <a class="card support-card reveal" href="/contact/" style="transition-delay:80ms">
+        <div class="icon-badge"><Icon name="message" /></div>
+        <h2>Questions or ideas?</h2>
+        <p class="muted">Report a bug, suggest a feature, ask the community, or get in touch directly. We read everything.</p>
+        <div class="platforms">
+          <span><Icon name="bug" size={16} />Bugs</span>
+          <span><Icon name="bulb" size={16} />Ideas</span>
+          <span><Icon name="mail" size={16} />Email</span>
+        </div>
+        <span class="go">Get in touch <Icon name="arrowRight" size={16} /></span>
+      </a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .stats-strip { border-block: 1px solid var(--border); background: var(--bg-elev); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .stats div { padding: 28px 16px; text-align: center; border-left: 1px solid var(--border); }
+  .stats div:first-child { border-left: 0; }
+  .stats strong { display: block; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+  .stats span { font-size: 13.5px; color: var(--fg-muted); }
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stats div:nth-child(3) { border-left: 0; }
+    .stats div:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  }
+
+  .grid-section { padding-top: 24px; }
+  .feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .feature-grid h3 { font-size: 17px; margin: 18px 0 8px; letter-spacing: -0.015em; }
+  .feature-grid p { color: var(--fg-muted); font-size: 14.5px; line-height: 1.55; }
+  @media (max-width: 1024px) { .feature-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .feature-grid { grid-template-columns: 1fr; } }
+
+  .security { overflow: hidden; }
+  .sg { width: 700px; height: 600px; right: -200px; top: 10%; opacity: .5; }
+  .sec-grid { position: relative; display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 64px; align-items: center; }
+  .sec-copy h2 { font-size: clamp(30px, 4vw, 44px); margin: 14px 0 16px; }
+  .sec-copy > p { font-size: 17.5px; }
+  .sec-list { display: grid; gap: 22px; margin: 34px 0 36px; }
+  .sec-item { display: flex; gap: 16px; }
+  .sec-item .icon-badge { flex: none; }
+  .sec-item h3 { font-size: 16.5px; margin-bottom: 4px; letter-spacing: -0.01em; }
+  .sec-item p { color: var(--fg-muted); font-size: 15px; }
+  @media (max-width: 960px) { .sec-grid { grid-template-columns: 1fr; gap: 44px; } }
+
+  .install { padding-top: 16px; }
+  .install-card {
+    position: relative; overflow: hidden;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;
+    padding: 56px;
+    border-radius: 24px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    background:
+      radial-gradient(ellipse 60% 80% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      var(--surface-1);
+  }
+  .install-card .bg-grid { mask-image: radial-gradient(ellipse 60% 70% at 100% 100%, #000, transparent 70%); }
+  .install-copy { position: relative; }
+  .install-copy h2 { font-size: clamp(28px, 3.6vw, 40px); margin: 14px 0 14px; }
+  .install-copy p { font-size: 17px; }
+  .install-ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 30px; }
+  .install-term { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid #1f2632; box-shadow: var(--shadow-lg); }
+  .term-bar { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; background: #10141b; border-bottom: 1px solid #1f2632; }
+  .term-bar i { width: 10px; height: 10px; border-radius: 50%; background: #283142; }
+  .term-bar span { margin-left: 10px; font-family: var(--font-mono); font-size: 12px; color: #677285; }
+  .install-term :global(.term-code) { border: 0; border-radius: 0; font-size: 14.5px; }
+  .install-term :global(.term-code pre) { padding: 22px 56px 22px 20px; }
+  @media (max-width: 960px) { .install-card { grid-template-columns: 1fr; padding: 32px 22px; gap: 32px; } }
+
+  .support { padding-top: 0; }
+  .support-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .support-card { padding: 36px; display: flex; flex-direction: column; }
+  .support-card h2 { font-size: 26px; margin: 22px 0 10px; }
+  .support-card > p { font-size: 16px; }
+  .heart { background: rgba(244, 63, 94, .1); color: #fb7185; border-color: rgba(244, 63, 94, .25); }
+  .donate:hover { border-color: rgba(244, 63, 94, .35); }
+  .platforms { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 28px; }
+  .platforms span {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--fg-muted);
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .go { margin-top: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 580; color: var(--accent-soft); transition: gap .2s; }
+  .support-card:hover .go { gap: 10px; }
+  @media (max-width: 800px) { .support-grid { grid-template-columns: 1fr; } .support-card { padding: 28px 24px; } }
+</style>

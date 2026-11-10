@@ -1,0 +1,40 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+---
+<Base title="Page not found">
+  <section class="nf">
+    <div class="bg-grid"></div>
+    <div class="bg-glow glow"></div>
+    <div class="container inner">
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i></div>
+        <pre><span class="p">$</span> cd {Astro.url.pathname}
+<span class="err">bash: cd: no such file or directory</span>
+<span class="p">$</span> <span class="cursor"></span></pre>
+      </div>
+      <h1>404: page not found</h1>
+      <p>The page you’re looking for has moved or never existed.</p>
+      <div class="ctas">
+        <a class="btn btn-primary btn-lg" href="/">Back to home</a>
+        <a class="btn btn-ghost btn-lg" href="/docs/"><Icon name="book" />Documentation</a>
+      </div>
+    </div>
+  </section>
+</Base>
+<style>
+  .nf { position: relative; overflow: hidden; padding: 96px 0 128px; text-align: center; }
+  .glow { width: 800px; height: 400px; left: 50%; top: -200px; transform: translateX(-50%); opacity: .6; }
+  .inner { position: relative; display: flex; flex-direction: column; align-items: center; }
+  .term { width: 100%; max-width: 520px; text-align: left; border-radius: 14px; overflow: hidden; border: 1px solid #1f2632; background: #0b0e13; box-shadow: var(--shadow-lg); }
+  .bar { display: flex; gap: 7px; padding: 12px 14px; background: #10141b; border-bottom: 1px solid #1f2632; }
+  .bar i { width: 10px; height: 10px; border-radius: 50%; background: #283142; }
+  pre { margin: 0; padding: 20px; color: #e4e8ef; font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
+  .p { color: #8b5cf6; }
+  .err { color: #f43f5e; }
+  .cursor { display: inline-block; width: 9px; height: 17px; vertical-align: -3px; background: #a78bfa; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  h1 { margin-top: 48px; font-size: clamp(32px, 5vw, 48px); letter-spacing: -0.035em; }
+  p { margin-top: 12px; color: var(--fg-muted); font-size: 18px; }
+  .ctas { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+</style>

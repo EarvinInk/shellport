@@ -1,0 +1,243 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+import { site } from '../../site.config';
+
+export async function getStaticPaths() {
+  const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+  return docs.map((entry, i) => ({
+    params: { slug: entry.id === 'introduction' ? undefined : entry.id },
+    props: { entry, prev: docs[i - 1], next: docs[i + 1] },
+  }));
+}
+
+const { entry, prev, next } = Astro.props;
+const { Content, headings } = await render(entry);
+const toc = headings.filter((h) => h.depth === 2);
+
+const all = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const sections = ['Getting started', 'Features', 'Reference'] as const;
+const href = (id: string) => (id === 'introduction' ? '/docs/' : `/docs/${id}/`);
+const editUrl = `${site.repo}/edit/main/website/src/content/docs/${entry.id}.md`;
+---
+<Base title={entry.data.title} description={entry.data.description}>
+  <div class="docs container">
+    <aside class="sidebar" id="docs-sidebar">
+      <button class="side-toggle" type="button" aria-expanded="false" aria-controls="docs-nav">
+        <Icon name="book" size={17} />
+        <span>{entry.data.section} <Icon name="chevronRight" size={14} /> {entry.data.title}</span>
+        <Icon name="chevronDown" size={17} class="chev" />
+      </button>
+      <nav id="docs-nav" aria-label="Documentation">
+        {sections.map((s) => (
+          <div class="group">
+            <h2>{s}</h2>
+            <ul>
+              {all.filter((d) => d.data.section === s).map((d) => (
+                <li><a href={href(d.id)} aria-current={d.id === entry.id ? 'page' : undefined}>{d.data.title}</a></li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <div class="side-help">
+          <strong>Need help?</strong>
+          <span>Can’t find what you’re looking for?</span>
+          <a href="/contact/">Contact support <Icon name="arrowRight" size={14} /></a>
+        </div>
+      </nav>
+    </aside>
+
+    <article class="content">
+      <nav class="crumbs" aria-label="Breadcrumb">
+        <a href="/docs/">Docs</a><Icon name="chevronRight" size={14} /><span>{entry.data.section}</span>
+      </nav>
+      <h1>{entry.data.title}</h1>
+      <p class="desc">{entry.data.description}</p>
+      <div class="prose"><Content /></div>
+
+      <div class="page-foot">
+        <a class="edit" href={editUrl} rel="noopener"><Icon name="code" size={15} />Edit this page on GitHub</a>
+      </div>
+
+      <nav class="pager" aria-label="Previous and next pages">
+        {prev ? (
+          <a href={href(prev.id)} class="prev"><small><Icon name="chevronLeft" size={14} />Previous</small><strong>{prev.data.title}</strong></a>
+        ) : <span></span>}
+        {next && (
+          <a href={href(next.id)} class="next"><small>Next<Icon name="chevronRight" size={14} /></small><strong>{next.data.title}</strong></a>
+        )}
+      </nav>
+    </article>
+
+    <aside class="toc" aria-label="On this page">
+      {toc.length > 0 && (
+        <>
+          <h2>On this page</h2>
+          <ul>{toc.map((h) => <li><a href={`#${h.slug}`} data-slug={h.slug}>{h.text}</a></li>)}</ul>
+        </>
+      )}
+      <a class="toc-cta" href="/download/">
+        <Icon name="download" size={16} />
+        <span><strong>Get Shellport {site.version}</strong><small>.deb · AppImage</small></span>
+      </a>
+    </aside>
+  </div>
+</Base>
+
+<style>
+  .docs {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) 220px;
+    gap: 56px;
+    padding-top: 40px; padding-bottom: 96px;
+    max-width: 1320px;
+  }
+  .sidebar, .toc { position: sticky; top: calc(var(--nav-h) + 32px); align-self: start; max-height: calc(100vh - var(--nav-h) - 48px); overflow-y: auto; }
+  .side-toggle { display: none; }
+  .group + .group { margin-top: 28px; }
+  .group h2, .toc h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-subtle); font-weight: 650; margin-bottom: 10px; }
+  .group ul, .toc ul { list-style: none; margin: 0; padding: 0; }
+  .group a {
+    display: block; padding: 6px 12px; margin-left: -12px; border-radius: 8px;
+    font-size: 14.5px; color: var(--fg-muted); transition: color .15s, background .15s;
+  }
+  .group a:hover { color: var(--fg); background: var(--surface-2); }
+  .group a[aria-current='page'] { color: var(--accent-soft); background: var(--accent-bg); font-weight: 560; }
+  .side-help {
+    margin-top: 32px; padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-1);
+    display: flex; flex-direction: column; gap: 4px; font-size: 13.5px;
+  }
+  .side-help span { color: var(--fg-muted); }
+  .side-help a { margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent-soft); font-weight: 560; }
+
+  .crumbs { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--fg-subtle); }
+  .crumbs a:hover { color: var(--fg); }
+  .content h1 { font-size: clamp(32px, 4.4vw, 44px); letter-spacing: -0.035em; margin-top: 14px; }
+  .desc { font-size: 18.5px; color: var(--fg-muted); margin-top: 12px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
+
+  .page-foot { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .edit { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg-muted); }
+  .edit:hover { color: var(--fg); }
+  .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 28px; }
+  .pager a {
+    display: flex; flex-direction: column; gap: 4px; padding: 18px 20px;
+    border: 1px solid var(--border); border-radius: 14px; background: var(--surface-1); transition: border-color .2s;
+  }
+  .pager a:hover { border-color: var(--accent); }
+  .pager small { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--fg-subtle); }
+  .pager strong { font-weight: 600; color: var(--fg); }
+  .pager .next { grid-column: 2; text-align: right; align-items: flex-end; }
+
+  .toc h2 { margin-bottom: 12px; }
+  .toc ul { border-left: 1px solid var(--border); }
+  .toc a {
+    display: block; padding: 5px 0 5px 14px; margin-left: -1px; border-left: 1px solid transparent;
+    font-size: 13.5px; color: var(--fg-muted); transition: color .15s, border-color .15s;
+  }
+  .toc a:hover { color: var(--fg); }
+  .toc a.active { color: var(--accent-soft); border-left-color: var(--accent); }
+  .toc-cta {
+    margin-top: 28px; display: flex; gap: 12px; align-items: center; padding: 14px;
+    border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: var(--accent-bg); font-size: 13px;
+  }
+  .toc-cta :global(svg) { color: var(--accent-soft); flex: none; }
+  .toc-cta strong { display: block; font-size: 13.5px; }
+  .toc-cta small { color: var(--fg-muted); }
+
+  /* ---- Prose ---- */
+  .prose { font-size: 16.5px; line-height: 1.75; color: color-mix(in srgb, var(--fg) 88%, var(--fg-muted)); }
+  .prose :global(h2) { font-size: 25px; margin: 48px 0 14px; letter-spacing: -0.02em; color: var(--fg); }
+  .prose :global(h3) { font-size: 19px; margin: 32px 0 10px; color: var(--fg); }
+  .prose :global(p) { margin: 16px 0; }
+  .prose :global(> :first-child) { margin-top: 28px; }
+  .prose :global(a) { color: var(--accent-soft); font-weight: 520; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 3px; }
+  .prose :global(a:hover) { text-decoration-color: var(--accent); }
+  .prose :global(strong) { color: var(--fg); font-weight: 620; }
+  .prose :global(ul), .prose :global(ol) { padding-left: 22px; margin: 16px 0; }
+  .prose :global(li) { margin: 7px 0; }
+  .prose :global(li::marker) { color: var(--fg-subtle); }
+  .prose :global(ol > li::marker) { color: var(--accent-soft); font-weight: 600; }
+  .prose :global(:not(pre) > code) {
+    font-size: .86em; padding: 2px 6px; border-radius: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--fg);
+  }
+  .prose :global(.pre-wrap) { position: relative; margin: 20px 0; }
+  .prose :global(.pre-wrap pre) { margin: 0; }
+  .prose :global(pre) {
+    margin: 20px 0; padding: 16px 52px 16px 18px; border-radius: 12px;
+    border: 1px solid #1f2632; font-size: 14px; line-height: 1.7; overflow-x: auto;
+    background: var(--code-bg) !important;
+  }
+  .prose :global(blockquote) {
+    margin: 24px 0; padding: 14px 18px; border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    background: var(--accent-bg); color: var(--fg-muted);
+  }
+  .prose :global(blockquote p) { margin: 0; }
+  .prose :global(table) { width: 100%; border-collapse: separate; border-spacing: 0; margin: 24px 0; font-size: 15px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .prose :global(thead) { background: var(--surface-2); }
+  .prose :global(th) { text-align: left; font-weight: 600; color: var(--fg); padding: 11px 16px; font-size: 13.5px; }
+  .prose :global(td) { padding: 11px 16px; border-top: 1px solid var(--border); vertical-align: top; }
+  .prose :global(tr:hover td) { background: color-mix(in srgb, var(--surface-2) 50%, transparent); }
+
+  @media (max-width: 1180px) {
+    .docs { grid-template-columns: 220px minmax(0, 1fr); gap: 48px; }
+    .toc { display: none; }
+  }
+  @media (max-width: 860px) {
+    .prose :global(table) { display: block; overflow-x: auto; }
+    .docs { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 16px; }
+    .sidebar { position: sticky; top: var(--nav-h); z-index: 10; max-height: none; overflow: visible; margin: 0 calc(var(--gutter) * -1); padding: 10px var(--gutter); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .side-toggle {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-1);
+      font-size: 14px; color: var(--fg-muted); cursor: pointer; text-align: left;
+    }
+    .side-toggle > span { flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .side-toggle :global(.chev) { transition: transform .2s; }
+    .sidebar.open .side-toggle :global(.chev) { transform: rotate(180deg); }
+    #docs-nav { display: none; padding: 20px 4px 8px; max-height: 65vh; overflow-y: auto; }
+    .sidebar.open #docs-nav { display: block; }
+    .pager { grid-template-columns: 1fr; }
+    .pager .next { grid-column: 1; }
+  }
+</style>
+
+<script>
+  // Mobile sidebar toggle
+  const sidebar = document.getElementById('docs-sidebar');
+  const toggle = sidebar?.querySelector<HTMLButtonElement>('.side-toggle');
+  toggle?.addEventListener('click', () => {
+    const open = sidebar!.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+
+  // Copy buttons on code blocks
+  document.querySelectorAll<HTMLPreElement>('.prose pre').forEach((pre) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.setAttribute('aria-label', 'Copy to clipboard');
+    btn.innerHTML = '<svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+    btn.dataset.copy = pre.innerText;
+    const wrap = document.createElement('div');
+    wrap.className = 'pre-wrap';
+    pre.replaceWith(wrap);
+    wrap.append(pre, btn);
+  });
+
+  // Highlight the current section in the TOC
+  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('.toc a[data-slug]'));
+  if (links.length) {
+    const targets = links.map((l) => document.getElementById(l.dataset.slug!)).filter(Boolean) as HTMLElement[];
+    const update = () => {
+      let current = targets[0];
+      for (const t of targets) if (t.getBoundingClientRect().top < 140) current = t;
+      links.forEach((l) => l.classList.toggle('active', l.dataset.slug === current?.id));
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+  }
+</script>

@@ -1,0 +1,197 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Icon from '../components/Icon.astro';
+import CodeBlock from '../components/CodeBlock.astro';
+import { site } from '../site.config';
+
+const distros = ['Ubuntu 22.04+', 'Debian 12+', 'Linux Mint 21+', 'Pop!_OS', 'elementary OS', 'Zorin OS'];
+const changes = [
+  'Terminal font (JetBrains Mono) is now bundled, so the terminal looks the same everywhere.',
+  'The vault’s keyring entry is tied to its config folder, so profiles can’t overwrite each other.',
+  'Merged container logs open in time order.',
+  'The SFTP “Modified” column no longer wraps.',
+];
+---
+<Base title="Download" description="Download Shellport for Linux as a .deb package or an AppImage. Free and open source.">
+  <PageHeader
+    eyebrow={`Version ${site.version} · Released ${new Date(site.releaseDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`}
+    title='Download <span class="grad-text">Shellport</span>'
+    lead="Free for everyone, forever. Pick the package that suits your system: both contain the same app."
+  >
+    <div class="platform"><Icon name="monitor" size={16} />Linux · 64-bit (x86_64)</div>
+  </PageHeader>
+
+  <section class="container packages">
+    <article class="card pkg featured">
+      <span class="badge">Recommended</span>
+      <div class="pkg-head">
+        <div class="icon-badge"><Icon name="package" /></div>
+        <div>
+          <h2>.deb package</h2>
+          <p class="muted">For Ubuntu, Debian, Linux Mint and derivatives</p>
+        </div>
+      </div>
+      <dl class="meta">
+        <div><dt>File</dt><dd><code>{site.downloads.deb.file}</code></dd></div>
+        <div><dt>Size</dt><dd>{site.downloads.deb.size}</dd></div>
+        <div><dt>Updates</dt><dd>Install the newer .deb over the old one</dd></div>
+      </dl>
+      <a class="btn btn-primary btn-lg full" href={site.releases} rel="noopener"><Icon name="download" />Download .deb</a>
+      <p class="step-label">Then, in your Downloads folder:</p>
+      <CodeBlock lines={['sudo apt install ./Shellport_*_amd64.deb']} />
+      <p class="note">apt installs the WebKitGTK and GTK libraries Shellport needs if they aren’t already present.</p>
+    </article>
+
+    <article class="card pkg">
+      <div class="pkg-head">
+        <div class="icon-badge"><Icon name="rocket" /></div>
+        <div>
+          <h2>AppImage</h2>
+          <p class="muted">For any distribution, no installation needed</p>
+        </div>
+      </div>
+      <dl class="meta">
+        <div><dt>File</dt><dd><code>{site.downloads.appimage.file}</code></dd></div>
+        <div><dt>Size</dt><dd>{site.downloads.appimage.size}</dd></div>
+        <div><dt>Updates</dt><dd>Replace the file with the newer one</dd></div>
+      </dl>
+      <a class="btn btn-ghost btn-lg full" href={site.releases} rel="noopener"><Icon name="download" />Download AppImage</a>
+      <p class="step-label">Make it executable and run it:</p>
+      <CodeBlock lines={['chmod +x Shellport_*_amd64.AppImage', './Shellport_*_amd64.AppImage']} />
+      <p class="note">Or right-click → Properties → Permissions → <em>Allow executing file as program</em>, then double-click.</p>
+    </article>
+  </section>
+
+  <section class="container callout-wrap">
+    <div class="callout">
+      <Icon name="info" size={20} />
+      <div>
+        <strong>AppImage won’t start?</strong> AppImages need FUSE 2. Install it with
+        <code>sudo apt install libfuse2t64</code> on Ubuntu 24.04+, or <code>sudo apt install libfuse2</code> on Ubuntu 22.04 and Debian.
+      </div>
+    </div>
+  </section>
+
+  <section class="section details">
+    <div class="container details-grid">
+      <div class="card">
+        <h3><Icon name="monitor" size={18} />System requirements</h3>
+        <ul class="req">
+          <li><span>Architecture</span><span>64-bit x86_64</span></li>
+          <li><span>Libraries</span><span>WebKitGTK 4.1, GTK 3</span></li>
+          <li><span>Optional</span><span>Docker, GNOME Keyring or KWallet</span></li>
+        </ul>
+        <p class="muted small">Tested on Linux Mint 22. Should work on any current distribution:</p>
+        <div class="chips">{distros.map((d) => <span>{d}</span>)}</div>
+      </div>
+
+      <div class="card">
+        <h3><Icon name="zap" size={18} />What’s new in {site.version}</h3>
+        <ul class="changes">{changes.map((c) => <li>{c}</li>)}</ul>
+        <a class="link" href={site.links.changelog} rel="noopener">Full changelog <Icon name="arrowRight" size={15} /></a>
+      </div>
+
+      <div class="card">
+        <h3><Icon name="code" size={18} />Build from source</h3>
+        <p class="muted">Prefer to compile it yourself? You’ll need Rust, Node.js 20+ with pnpm, and the WebKitGTK development packages.</p>
+        <CodeBlock lines={['git clone ' + site.repo + '.git', 'cd shellport && pnpm install', 'pnpm tauri build --bundles deb,appimage']} />
+        <a class="link" href="/docs/build-from-source/">Build guide <Icon name="arrowRight" size={15} /></a>
+      </div>
+
+      <div class="card">
+        <h3><Icon name="shield" size={18} />Verified builds</h3>
+        <p class="muted">Official packages are built in the open by GitHub Actions on Ubuntu 22.04, straight from the tagged source. Every release lists its files on GitHub.</p>
+        <div class="links">
+          <a class="link" href={site.releases} rel="noopener">All releases <Icon name="external" size={14} /></a>
+          <a class="link" href="/docs/uninstall/">How to uninstall <Icon name="arrowRight" size={15} /></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container next">
+    <div class="next-card">
+      <div>
+        <h2>Installed? Here’s where to start.</h2>
+        <p class="muted">Create your vault, import your hosts and connect in under two minutes.</p>
+      </div>
+      <a class="btn btn-primary btn-lg" href="/docs/getting-started/"><Icon name="book" />Quick start guide</a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .platform {
+    margin-top: 26px; display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14px; color: var(--fg-muted);
+    padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-1);
+  }
+  .packages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1040px; }
+  .pkg { padding: 34px; display: flex; flex-direction: column; }
+  .featured {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+      var(--surface-1);
+    box-shadow: 0 30px 60px -30px var(--glow);
+  }
+  .badge {
+    position: absolute; top: 20px; right: 20px;
+    font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-bg); color: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .pkg-head { display: flex; gap: 16px; align-items: center; }
+  .pkg-head .icon-badge { width: 52px; height: 52px; border-radius: 14px; flex: none; }
+  .pkg-head .icon-badge :global(svg) { width: 24px; height: 24px; }
+  .pkg h2 { font-size: 24px; }
+  .pkg-head p { font-size: 14.5px; margin-top: 4px; }
+  .meta { margin: 26px 0; display: grid; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .meta div { display: grid; grid-template-columns: 90px 1fr; gap: 12px; padding: 11px 16px; font-size: 14px; }
+  .meta div + div { border-top: 1px solid var(--border); }
+  .meta dt { color: var(--fg-subtle); }
+  .meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .meta code { font-size: 12.5px; color: var(--fg); }
+  .full { width: 100%; }
+  .step-label { margin: 24px 0 10px; font-size: 14px; color: var(--fg-muted); font-weight: 500; }
+  .note { margin-top: 12px; font-size: 13.5px; color: var(--fg-subtle); }
+  @media (max-width: 860px) { .packages { grid-template-columns: minmax(0, 1fr); } .pkg { padding: 26px 22px; } }
+
+  .callout-wrap { max-width: 1040px; margin-top: 20px; }
+  .callout {
+    display: flex; gap: 14px; padding: 18px 20px; border-radius: 14px;
+    border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .07);
+    font-size: 14.5px; color: var(--fg-muted);
+  }
+  .callout :global(svg) { color: var(--warn); flex: none; margin-top: 2px; }
+  .callout strong { color: var(--fg); }
+  .callout code, .req code { font-size: 13px; color: var(--fg); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
+
+  .details { padding-top: 72px; }
+  .details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1040px; }
+  .details h3 { display: flex; align-items: center; gap: 10px; font-size: 18px; margin-bottom: 18px; }
+  .details h3 :global(svg) { color: var(--accent-soft); }
+  .details .card > p { font-size: 15px; margin-bottom: 18px; }
+  .req { list-style: none; padding: 0; margin: 0 0 18px; }
+  .req li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+  .req li span:first-child { color: var(--fg-subtle); }
+  .req li span:last-child { text-align: right; }
+  .small { font-size: 14px !important; margin-bottom: 12px !important; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips span { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--fg-muted); }
+  .changes { margin: 0 0 20px; padding-left: 18px; display: grid; gap: 10px; font-size: 14.5px; color: var(--fg-muted); }
+  .changes li::marker { color: var(--accent); }
+  .link { display: inline-flex; align-items: center; gap: 6px; font-weight: 560; font-size: 14.5px; color: var(--accent-soft); margin-top: 18px; }
+  .links { display: flex; gap: 24px; flex-wrap: wrap; }
+  @media (max-width: 860px) { .details-grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .next { max-width: 1040px; padding-bottom: 112px; }
+  .next-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+    padding: 36px 40px; border-radius: 20px;
+    border: 1px solid var(--border);
+    background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 16%, var(--surface-1)), var(--surface-1) 60%);
+  }
+  .next-card h2 { font-size: 26px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .next-card { padding: 28px 22px; } .next-card .btn { width: 100%; } .next { padding-bottom: 72px; } }
+</style>

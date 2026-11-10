@@ -1,0 +1,43 @@
+---
+import { Image } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+interface Props {
+  src: ImageMetadata;
+  alt: string;
+  title?: string;
+  eager?: boolean;
+  class?: string;
+}
+const { src, alt, title = 'Shellport', eager = false, class: className } = Astro.props;
+---
+<figure class:list={['window', className]}>
+  <div class="bar">
+    <span class="title">{title}</span>
+    <span class="ctrls" aria-hidden="true"><i></i><i></i><i></i></span>
+  </div>
+  <Image src={src} alt={alt} widths={[640, 960, 1280]} sizes="(max-width: 1240px) 100vw, 1180px"
+    loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : 'auto'} format="webp" quality={90} />
+</figure>
+<style>
+  .window {
+    margin: 0;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0b0e13;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow-lg);
+  }
+  .bar {
+    position: relative;
+    height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #161b24, #10141b);
+    border-bottom: 1px solid #1f2632;
+  }
+  .title { font-size: 12.5px; font-weight: 550; color: #9aa4b5; }
+  .ctrls { position: absolute; right: 12px; display: flex; gap: 8px; }
+  .ctrls i { width: 11px; height: 11px; border-radius: 50%; background: #283142; }
+  .ctrls i:last-child { background: #3a2a55; }
+  img { width: 100%; height: auto; display: block; }
+  @media (max-width: 640px) { .bar { height: 26px; } .title { font-size: 11px; } .ctrls i { width: 8px; height: 8px; } }
+</style>

@@ -1,0 +1,23 @@
+---
+interface Props { size?: number; wordmark?: boolean }
+const { size = 30, wordmark = true } = Astro.props;
+const id = `lg-${Math.random().toString(36).slice(2, 8)}`;
+---
+<span class="logo">
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id={id} x1="0" y1="0" x2="0.35" y2="1">
+        <stop offset="0" stop-color="#a78bfa" />
+        <stop offset="1" stop-color="#6d28d9" />
+      </linearGradient>
+    </defs>
+    <rect x="4" y="4" width="56" height="56" rx="14" fill={`url(#${id})`} />
+    <path d="M17.3 21.1 30.1 32 17.3 42.9" fill="none" stroke="#fff" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M33.3 42.9h14" stroke="#fff" stroke-width="4.8" stroke-linecap="round" />
+  </svg>
+  {wordmark && <span class="word">Shellport</span>}
+</span>
+<style>
+  .logo { display: inline-flex; align-items: center; gap: 10px; }
+  .word { font-weight: 680; font-size: 18px; letter-spacing: -0.02em; }
+</style>
