@@ -78,6 +78,19 @@ fn known_hosts_file() -> std::path::PathBuf {
     crate::paths::home_dir().join(".ssh/known_hosts")
 }
 
+struct PromptGuard {
+    app: AppHandle,
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<HostKeyDecision>>>>,
+    request_id: String,
+}
+
+impl Drop for PromptGuard {
+    fn drop(&mut self) {
+        self.pending.lock().remove(&self.request_id);
+        let _ = self.app.emit("hostkey-prompt-done", self.request_id.clone());
+    }
+}
+
 impl client::Handler for Client {
     type Error = anyhow::Error;
 
@@ -99,6 +112,9 @@ impl client::Handler for Client {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(request_id.clone(), tx);
+        // However this prompt ends (answer, timeout, or the connection attempt
+        // being dropped), remove it and close its dialog in the UI.
+        let _guard = PromptGuard { app: self.app.clone(), pending: self.pending.clone(), request_id: request_id.clone() };
         let prompt = HostKeyPrompt {
             request_id: request_id.clone(),
             host: self.host.clone(),
@@ -387,9 +403,16 @@ pub fn connect(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future
             }
             None => {
                 let addr = (host.hostname.as_str(), host.port);
-                let h = tokio::time::timeout(Duration::from_secs(20), client::connect(config, addr, handler))
+                let tcp = tokio::time::timeout(Duration::from_secs(20), tokio::net::TcpStream::connect(addr))
                     .await
-                    .map_err(|_| anyhow!("timed out connecting to {}:{}", host.hostname, host.port))??;
+                    .map_err(|_| anyhow!("timed out connecting to {}:{}", host.hostname, host.port))?
+                    .with_context(|| format!("connecting to {}:{}", host.hostname, host.port))?;
+                let _ = tcp.set_nodelay(true);
+                // The handshake may wait on the host-key dialog (up to 180 s), so
+                // its limit must be longer than that.
+                let h = tokio::time::timeout(Duration::from_secs(200), client::connect_stream(config, tcp, handler))
+                    .await
+                    .map_err(|_| anyhow!("SSH handshake with {}:{} timed out", host.hostname, host.port))??;
                 (h, None)
             }
         };
@@ -404,6 +427,10 @@ pub fn get_conn(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Futur
 }
 
 async fn get_conn_inner(app: AppHandle, host_id: String, depth: u8) -> Result<Arc<SshConn>> {
+    // Serialise connection attempts per host, so a terminal and an SFTP pane
+    // opening together share one connection (and one host-key prompt).
+    let gate = app.state::<AppState>().connecting.lock().entry(host_id.clone()).or_default().clone();
+    let _connecting = gate.lock().await;
     {
         let state = app.state::<AppState>();
         let conns = state.conns.lock().await;

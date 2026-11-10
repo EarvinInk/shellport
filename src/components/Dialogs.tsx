@@ -13,8 +13,11 @@ export function HostKeyDialog() {
   const [confirmReplace, setConfirmReplace] = useState(false);
   useEffect(() => {
     const un = listen<HostKeyPrompt>("hostkey-prompt", (e) => setQueue((q) => [...q, e.payload]));
+    // The backend gave up on a prompt (timeout, cancelled connection): drop its dialog.
+    const un2 = listen<string>("hostkey-prompt-done", (e) => setQueue((q) => q.filter((x) => x.requestId !== e.payload)));
     return () => {
       un.then((f) => f());
+      un2.then((f) => f());
     };
   }, []);
   const p = queue[0];

@@ -29,6 +29,8 @@ pub struct AppState {
     pub auth_pending: Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
     /// Local files the user picked in a native file dialog opened by the
     /// backend; only these may be read by path from the webview.
+    /// Per-host lock held while a connection is being established.
+    pub connecting: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     pub granted_files: Mutex<std::collections::HashSet<PathBuf>>,
     /// Recent secret reveals, for rate limiting.
     pub reveals: Mutex<std::collections::VecDeque<std::time::Instant>>,
@@ -50,6 +52,7 @@ impl AppState {
             tasks: Default::default(),
             hostkey_pending: Default::default(),
             auth_pending: Default::default(),
+            connecting: Default::default(),
             granted_files: Default::default(),
             reveals: Default::default(),
         })

@@ -145,6 +145,8 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       allowProposedApi: true,
       fontFamily: settings?.fontFamily,
       fontSize: settings?.fontSize ?? 14,
+      // A little extra height keeps underscores from being clipped (DejaVu Sans Mono).
+      lineHeight: 1.15,
       scrollback: settings?.scrollback ?? 10000,
       cursorStyle: settings?.cursorStyle ?? "block",
       cursorBlink: settings?.cursorBlink ?? true,
