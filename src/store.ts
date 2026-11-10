@@ -30,6 +30,8 @@ interface AppStore {
   settings: Settings | null;
   toasts: Toast[];
   sidebar: "hosts" | "docker";
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   hostEditor: Host | "new" | null;
   importOpen: boolean;
   unlockPrompt: boolean;
@@ -71,6 +73,17 @@ export const useApp = create<AppStore>((set, get) => ({
   settings: null,
   toasts: [],
   sidebar: "hosts",
+  sidebarCollapsed: readCollapsed(),
+  toggleSidebar: () =>
+    set((s) => {
+      const sidebarCollapsed = !s.sidebarCollapsed;
+      try {
+        localStorage.setItem("shellport.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
+      } catch {
+        /* storage unavailable: keep in memory only */
+      }
+      return { sidebarCollapsed };
+    }),
   hostEditor: null,
   importOpen: false,
   unlockPrompt: false,
@@ -128,7 +141,7 @@ export const useApp = create<AppStore>((set, get) => ({
     }),
   setActive: (id) => set({ activeTab: id }),
   renameTab: (id, title) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)) })),
-  setSidebar: (sidebar) => set({ sidebar }),
+  setSidebar: (sidebar) => set({ sidebar, sidebarCollapsed: false }),
   setHostEditor: (hostEditor) => set({ hostEditor }),
   setImportOpen: (importOpen) => set({ importOpen }),
   setUnlockPrompt: (unlockPrompt) => set({ unlockPrompt }),
@@ -174,3 +187,11 @@ export const useApp = create<AppStore>((set, get) => ({
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem("shellport.sidebarCollapsed") === "1";
+  } catch {
+    return false;
+  }
+}

@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
-import { Box, FolderOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
+import { Box, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPromptDialog, HostKeyDialog, Toasts, UnlockDialog, useAppErrors } from "./components/Dialogs";
 import { ForwardsDialog } from "./components/ForwardsDialog";
@@ -63,7 +63,7 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
 
 export default function App() {
   useAppErrors();
-  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, vault, refreshVault, refreshHosts, loadSettings, toast } = useApp();
+  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, loadSettings, toast } = useApp();
 
   useEffect(() => {
     Promise.all([loadSettings(), refreshHosts()]).then(() => useApp.getState().restoreSession());
@@ -108,6 +108,10 @@ export default function App() {
         e.preventDefault();
         openTab({ kind: "local", title: "Local" });
       }
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
+        e.preventDefault();
+        toggleSidebar();
+      }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyW" && activeTab) {
         e.preventDefault();
         closeTab(activeTab);
@@ -123,17 +127,17 @@ export default function App() {
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
-  }, [tabs, activeTab, openTab, closeTab, setActive]);
+  }, [tabs, activeTab, openTab, closeTab, setActive, toggleSidebar]);
 
   return (
     <div className="flex h-full">
       {/* Rail */}
       <nav className="flex w-12 flex-col items-center gap-1 border-r border-border bg-surface-1 py-2">
         <img src="/logo.svg" alt="Shellport" className="mb-2 h-9 w-9" draggable={false} />
-        <RailButton title="Hosts" active={sidebar === "hosts"} onClick={() => setSidebar("hosts")}>
+        <RailButton title="Hosts" active={!sidebarCollapsed && sidebar === "hosts"} onClick={() => (!sidebarCollapsed && sidebar === "hosts" ? toggleSidebar() : setSidebar("hosts"))}>
           <Server size={18} />
         </RailButton>
-        <RailButton title="Docker" active={sidebar === "docker"} onClick={() => setSidebar("docker")}>
+        <RailButton title="Docker" active={!sidebarCollapsed && sidebar === "docker"} onClick={() => (!sidebarCollapsed && sidebar === "docker" ? toggleSidebar() : setSidebar("docker"))}>
           <Box size={18} />
         </RailButton>
         <RailButton title="Vault" onClick={() => openTab({ kind: "vault", title: "Vault" }, { unique: true })}>
@@ -159,11 +163,21 @@ export default function App() {
       </nav>
 
       {/* Sidebar */}
-      <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : <DockerSidebar />}</aside>
+      {!sidebarCollapsed && (
+        <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : <DockerSidebar />}</aside>
+      )}
 
       {/* Workspace */}
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-surface-1 px-1">
+          <button
+            title={sidebarCollapsed ? "Show sidebar (Ctrl+Shift+B)" : "Hide sidebar (Ctrl+Shift+B)"}
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            className="mb-1 mr-1 shrink-0 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+            onClick={toggleSidebar}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+          </button>
           {tabs.map((t) => (
             <div
               key={t.id}
