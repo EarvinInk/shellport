@@ -57,8 +57,21 @@ export function ImportDialog() {
       }
     >
       <div className="mb-3 flex gap-2">
-        <Input value={path} onChange={(e) => setPath(e.target.value)} />
-        <Button onClick={() => load(path)}>Load</Button>
+        <Input value={path} readOnly />
+        <Button
+          onClick={async () => {
+            try {
+              const p = await api.localPickFile("Choose an SSH config file", "~/.ssh");
+              if (!p) return;
+              setPath(p);
+              load(p);
+            } catch (e) {
+              error(e);
+            }
+          }}
+        >
+          Browse…
+        </Button>
       </div>
       {entries.length === 0 ? (
         <div className="py-6 text-center text-sm text-fg-subtle">No concrete Host entries found.</div>

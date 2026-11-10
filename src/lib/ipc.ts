@@ -71,12 +71,15 @@ export const api = {
   localList: (path: string) => invoke<FileEntry[]>("local_list", { path }),
   localHome: () => invoke<string>("local_home"),
   localReadText: (path: string) => invoke<string>("local_read_text", { path }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
+  /** Native file picker run by the backend; only files picked here can be read by path. */
+  localPickFile: (title: string, directory?: string) => invoke<string | null>("local_pick_file", { title, directory }),
   sftpMkdir: (hostId: string, path: string) => invoke<void>("sftp_mkdir", { hostId, path }),
   sftpRename: (hostId: string, from: string, to: string) => invoke<void>("sftp_rename", { hostId, from, to }),
   sftpRemove: (hostId: string, path: string) => invoke<void>("sftp_remove", { hostId, path }),
   sftpChmod: (hostId: string, path: string, mode: number) => invoke<void>("sftp_chmod", { hostId, path, mode }),
-  sftpDownload: (hostId: string, remote: string, localDir: string, transferId: string, onEvent: Channel<TransferEvent>) =>
-    invoke<void>("sftp_download", { hostId, remote, localDir, transferId, onEvent }),
+  sftpDownload: (hostId: string, remote: string, localDir: string, transferId: string, onEvent: Channel<TransferEvent>, overwrite = false) =>
+    invoke<void>("sftp_download", { hostId, remote, localDir, overwrite, transferId, onEvent }),
   sftpUpload: (hostId: string, local: string, remoteDir: string, transferId: string, onEvent: Channel<TransferEvent>) =>
     invoke<void>("sftp_upload", { hostId, local, remoteDir, transferId, onEvent }),
 

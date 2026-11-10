@@ -27,6 +27,11 @@ pub struct AppState {
     pub hostkey_pending: Arc<Mutex<HashMap<String, oneshot::Sender<crate::ssh::HostKeyDecision>>>>,
     /// Keyboard-interactive (2FA) prompts waiting on the user; None = cancelled.
     pub auth_pending: Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
+    /// Local files the user picked in a native file dialog opened by the
+    /// backend; only these may be read by path from the webview.
+    pub granted_files: Mutex<std::collections::HashSet<PathBuf>>,
+    /// Recent secret reveals, for rate limiting.
+    pub reveals: Mutex<std::collections::VecDeque<std::time::Instant>>,
 }
 
 impl AppState {
@@ -45,6 +50,8 @@ impl AppState {
             tasks: Default::default(),
             hostkey_pending: Default::default(),
             auth_pending: Default::default(),
+            granted_files: Default::default(),
+            reveals: Default::default(),
         })
     }
 

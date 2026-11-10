@@ -4675,9 +4675,12 @@ dependencies = [
  "base64 0.22.1",
  "bollard",
  "chacha20poly1305",
+ "data-encoding",
  "directories",
  "futures-util",
+ "hmac 0.13.0",
  "keyring",
+ "libc",
  "log",
  "parking_lot",
  "portable-pty",
@@ -4686,6 +4689,7 @@ dependencies = [
  "russh-sftp",
  "serde",
  "serde_json",
+ "sha1 0.11.0",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -6630,6 +6634,7 @@ version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 

@@ -168,7 +168,7 @@ pub(crate) fn shell_quote(s: &str) -> String {
 }
 
 pub(crate) fn valid_ref(id: &str) -> Result<()> {
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
+    if !id.starts_with(|c: char| c.is_ascii_alphanumeric()) || !id.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
         bail!("invalid container reference");
     }
     Ok(())

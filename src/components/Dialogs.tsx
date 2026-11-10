@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/ipc";
 import type { AuthPrompt, HostKeyPrompt } from "../lib/types";
 import { useApp } from "../store";
+import { KeyringNote } from "../views/VaultView";
 import { Button, Checkbox, Field, Input, Modal } from "./ui";
 
 /** Host key verification: shown when the server key is unknown or changed. */
@@ -34,7 +35,6 @@ export function HostKeyDialog() {
               Reject
             </Button>
             <div className="flex-1" />
-            <Button onClick={() => answer("once")}>Connect once</Button>
             {confirmReplace ? (
               <Button variant="danger" onClick={() => answer("trust")}>
                 Yes, replace saved key
@@ -65,8 +65,11 @@ export function HostKeyDialog() {
           {p.changed ? (
             <>
               <p className="text-danger">
-                The key presented by <b>{p.host}:{p.port}</b> does not match the one saved in ~/.ssh/known_hosts. Someone could be intercepting this
-                connection, or the server was reinstalled.
+                {p.changedLine
+                  ? <>The key presented by <b>{p.host}:{p.port}</b> does not match the one saved in ~/.ssh/known_hosts (line {p.changedLine}).</>
+                  : <>~/.ssh/known_hosts could not be read, so the key presented by <b>{p.host}:{p.port}</b> can't be checked.</>}{" "}
+                Someone could be intercepting this connection, or the server was reinstalled. No password or key is sent unless you replace the
+                saved key.
               </p>
               <p className="text-fg-muted">
                 Only replace the saved key if you know the server changed. The old entry is removed with <code>ssh-keygen -R</code>, which keeps a
@@ -108,7 +111,7 @@ export function AuthPromptDialog() {
   };
   return (
     <Modal
-      title={p.name || `Verification for ${p.host}`}
+      title={`Verification for ${p.host}`}
       onClose={() => respond(null)}
       width="max-w-md"
       footer={
@@ -131,8 +134,16 @@ export function AuthPromptDialog() {
       >
         <div className="flex items-start gap-3 text-sm text-fg-muted">
           <KeyRound size={18} className="mt-0.5 shrink-0 text-accent" />
-          <span>{p.instructions || `${p.host} is asking for additional verification.`}</span>
+          <span>
+            <b className="text-fg">{p.host}</b> is asking for additional verification. The text below comes from that server, not from Shellport;
+            never enter your vault master password here.
+          </span>
         </div>
+        {(p.name || p.instructions) && (
+          <div className="whitespace-pre-wrap rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-fg-muted">
+            {[p.name, p.instructions].filter(Boolean).join("\n")}
+          </div>
+        )}
         {p.prompts.map((f, i) => (
           <Field key={i} label={f.prompt.trim().replace(/:$/, "") || "Response"}>
             <Input
@@ -241,6 +252,7 @@ export function UnlockDialog() {
       >
         <Input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Master password" />
         <Checkbox label="Remember on this device (system keyring)" checked={remember} onChange={setRemember} />
+        {remember && <KeyringNote />}
         {err && <div className="text-sm text-danger">{err}</div>}
       </form>
     </Modal>

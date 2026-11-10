@@ -118,17 +118,35 @@ pub fn secret_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Revealed {
-    value: String,
-    passphrase: Option<String>,
+    value: zeroize::Zeroizing<String>,
+    passphrase: Option<zeroize::Zeroizing<String>>,
 }
+
+/// At most this many reveals per minute: a person clicking "show"/"copy"
+/// never gets near it, a script dumping the vault does.
+const REVEALS_PER_MINUTE: usize = 20;
 
 /// Explicit user action: show/copy a secret value.
 #[tauri::command]
 pub fn secret_reveal(state: State<'_, AppState>, id: String) -> CmdResult<Revealed> {
+    {
+        let now = std::time::Instant::now();
+        let mut r = state.reveals.lock();
+        while r.front().is_some_and(|t| now.duration_since(*t) > std::time::Duration::from_secs(60)) {
+            r.pop_front();
+        }
+        if r.len() >= REVEALS_PER_MINUTE {
+            return Err(anyhow!("too many secrets revealed in the last minute; try again shortly").into());
+        }
+        r.push_back(now);
+    }
     let mut v = state.vault.lock();
     v.touch();
     let s = v.get(&id)?;
-    Ok(Revealed { value: s.value.clone(), passphrase: s.passphrase.clone() })
+    Ok(Revealed {
+        value: zeroize::Zeroizing::new(s.value.clone()),
+        passphrase: s.passphrase.clone().map(zeroize::Zeroizing::new),
+    })
 }
 
 #[tauri::command]
@@ -173,15 +191,32 @@ pub async fn host_delete(state: State<'_, AppState>, id: String) -> CmdResult<()
     Ok(state.hosts.lock().delete(&id)?)
 }
 
+/// Resolve an ssh_config path: the default `~/.ssh/config`, or a file the
+/// user picked with `local_pick_file`.
+fn ssh_config_path(state: &AppState, path: Option<String>) -> anyhow::Result<std::path::PathBuf> {
+    let default = ssh_config::default_path();
+    match path {
+        None => Ok(default),
+        Some(p) => {
+            let p = crate::paths::expand_tilde(&p);
+            let same_as_default = matches!((std::fs::canonicalize(&p), std::fs::canonicalize(&default)), (Ok(a), Ok(b)) if a == b);
+            if same_as_default || p == default {
+                Ok(default)
+            } else {
+                granted_path(state, &p, false)
+            }
+        }
+    }
+}
+
 #[tauri::command]
-pub fn ssh_config_preview(path: Option<String>) -> Vec<SshConfigEntry> {
-    let p = path.map(|p| crate::paths::expand_tilde(&p)).unwrap_or_else(ssh_config::default_path);
-    ssh_config::parse_file(&p)
+pub fn ssh_config_preview(state: State<'_, AppState>, path: Option<String>) -> CmdResult<Vec<SshConfigEntry>> {
+    Ok(ssh_config::parse_file(&ssh_config_path(&state, path)?))
 }
 
 #[tauri::command]
 pub fn ssh_config_import(state: State<'_, AppState>, path: Option<String>, aliases: Vec<String>) -> CmdResult<usize> {
-    let p = path.map(|p| crate::paths::expand_tilde(&p)).unwrap_or_else(ssh_config::default_path);
+    let p = ssh_config_path(&state, path)?;
     let entries = ssh_config::parse_file(&p);
     let hosts: Vec<Host> = ssh_config::to_hosts(&entries).into_iter().filter(|h| aliases.contains(&h.name)).collect();
     Ok(state.hosts.lock().import(hosts)?)
@@ -306,15 +341,47 @@ pub fn local_list(path: String) -> CmdResult<Vec<FileEntry>> {
     Ok(sftp::list_local(&path)?)
 }
 
-/// Read a small local text file (used to import private keys into the vault).
+/// Open a native file picker from the backend. The picked file is recorded so
+/// `local_read_text` / the ssh_config commands may read it; nothing else can be
+/// read by path from the webview.
 #[tauri::command]
-pub fn local_read_text(path: String) -> CmdResult<String> {
-    let p = crate::paths::expand_tilde(&path);
+pub async fn local_pick_file(app: AppHandle, title: String, directory: Option<String>) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut d = app.dialog().file().set_title(title);
+    if let Some(dir) = directory {
+        d = d.set_directory(crate::paths::expand_tilde(&dir));
+    }
+    d.pick_file(move |p| {
+        let _ = tx.send(p);
+    });
+    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
+    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let canon = std::fs::canonicalize(&path)?;
+    app.state::<AppState>().granted_files.lock().insert(canon);
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// The canonical path of `p` if the user picked it via `local_pick_file`.
+fn granted_path(state: &AppState, p: &std::path::Path, consume: bool) -> anyhow::Result<std::path::PathBuf> {
+    let canon = std::fs::canonicalize(p)?;
+    let mut g = state.granted_files.lock();
+    let ok = if consume { g.remove(&canon) } else { g.contains(&canon) };
+    if !ok {
+        return Err(anyhow!("{} must be chosen with the file picker", p.display()));
+    }
+    Ok(canon)
+}
+
+/// Read a small local text file the user just picked (private key import).
+#[tauri::command]
+pub fn local_read_text(state: State<'_, AppState>, path: String) -> CmdResult<zeroize::Zeroizing<String>> {
+    let p = granted_path(&state, &crate::paths::expand_tilde(&path), true)?;
     let meta = std::fs::metadata(&p)?;
     if meta.len() > 256 * 1024 {
         return Err(anyhow!("file is too large to be a key").into());
     }
-    Ok(std::fs::read_to_string(p)?)
+    Ok(zeroize::Zeroizing::new(std::fs::read_to_string(p)?))
 }
 
 #[tauri::command]
@@ -372,11 +439,13 @@ pub async fn sftp_download(
     host_id: String,
     remote: String,
     local_dir: String,
+    overwrite: Option<bool>,
     transfer_id: String,
     on_event: Channel<TransferEvent>,
 ) -> CmdResult<()> {
     let (a, ev) = (app.clone(), on_event.clone());
-    run_transfer(&app, transfer_id, on_event, async move { sftp::download(&a, &host_id, &remote, &local_dir, &ev).await }).await
+    let overwrite = overwrite.unwrap_or(false);
+    run_transfer(&app, transfer_id, on_event, async move { sftp::download(&a, &host_id, &remote, &local_dir, overwrite, &ev).await }).await
 }
 
 #[tauri::command]
@@ -465,6 +534,9 @@ pub fn settings_get(state: State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 pub fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
+    if settings.local_shell != state.settings.lock().local_shell && !allowed_shell(&settings.local_shell) {
+        return Err(anyhow!("{} is not a login shell listed in /etc/shells", settings.local_shell).into());
+    }
     settings.save(&state.settings_path)?;
     *state.settings.lock() = settings.clone();
     Ok(settings)
@@ -585,4 +657,41 @@ pub fn session_load() -> serde_json::Value {
 pub fn session_save(session: serde_json::Value) -> CmdResult<()> {
     crate::paths::write_private(&session_path(), &serde_json::to_vec(&session)?)?;
     Ok(())
+}
+
+/// Only programs listed in /etc/shells (or the user's $SHELL) may be the local shell.
+fn allowed_shell(shell: &str) -> bool {
+    if !std::path::Path::new(shell).is_absolute() {
+        return false;
+    }
+    let listed = std::fs::read_to_string("/etc/shells").is_ok_and(|t| t.lines().map(str::trim).any(|l| l == shell));
+    listed || std::env::var("SHELL").is_ok_and(|s| s == shell)
+}
+
+/// Open an http(s) URL in the user's browser. No shell is involved and other
+/// schemes (file:, custom handlers) are refused.
+#[tauri::command]
+pub fn open_url(url: String) -> CmdResult<()> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) || url.chars().any(|c| c.is_control()) {
+        return Err(anyhow!("only http(s) links can be opened").into());
+    }
+    std::process::Command::new("xdg-open").arg(&url).stdin(std::process::Stdio::null()).spawn()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn revealed_serializes_as_plain_strings() {
+        let r = super::Revealed { value: zeroize::Zeroizing::new("v".into()), passphrase: Some(zeroize::Zeroizing::new("p".into())) };
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"value":"v","passphrase":"p"}"#);
+    }
+
+    #[test]
+    fn shell_allowlist() {
+        assert!(super::allowed_shell("/bin/sh"));
+        assert!(!super::allowed_shell("sh"));
+        assert!(!super::allowed_shell("/usr/bin/python3"));
+    }
 }

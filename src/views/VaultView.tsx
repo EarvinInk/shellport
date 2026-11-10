@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { Copy, Eye, EyeOff, FileKey, KeyRound, Lock, Plus, ShieldCheck, Sparkles, StickyNote, Trash2, Unlock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge, Button, Checkbox, Empty, Field, IconButton, Input, Modal, Select, TextArea } from "../components/ui";
@@ -64,6 +63,7 @@ function CreateVault() {
         <Input type="password" autoFocus placeholder="Master password (8+ chars)" value={pw} onChange={(e) => setPw(e.target.value)} />
         <Input type="password" placeholder="Confirm" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         <Checkbox label="Unlock automatically via system keyring" checked={remember} onChange={setRemember} />
+        {remember && <KeyringNote />}
         {err && <div className="text-sm text-danger">{err}</div>}
         <Button variant="primary" className="w-full" disabled={busy || pw.length < 8}>
           {busy ? "Creating…" : "Create vault"}
@@ -105,6 +105,7 @@ function UnlockVault() {
         </div>
         <Input type="password" autoFocus placeholder="Master password" value={pw} onChange={(e) => setPw(e.target.value)} />
         <Checkbox label="Remember on this device" checked={remember} onChange={setRemember} />
+        {remember && <KeyringNote />}
         {err && <div className="text-sm text-danger">{err}</div>}
         <div className="flex gap-2">
           {vault.remembered && (
@@ -310,9 +311,9 @@ function SecretEditor({ secret, onClose }: { secret: SecretMeta | "new"; onClose
   };
 
   const loadFile = async () => {
-    const path = await open({ title: "Import private key", defaultPath: `${await api.localHome()}/.ssh` });
-    if (typeof path !== "string") return;
     try {
+      const path = await api.localPickFile("Import private key", "~/.ssh");
+      if (!path) return;
       setF({ ...f, value: await api.localReadText(path), name: f.name || path.split("/").pop() || "" });
     } catch (e) {
       error(e);
@@ -435,5 +436,14 @@ function ChangePassword({ onClose }: { onClose: () => void }) {
         {err && <div className="text-sm text-danger">{err}</div>}
       </div>
     </Modal>
+  );
+}
+
+export function KeyringNote() {
+  return (
+    <p className="text-xs leading-relaxed text-fg-subtle">
+      The vault key is stored in your login keyring. Any program running as you can read it while the keyring is unlocked, so leave this off on
+      shared or less trusted machines.
+    </p>
   );
 }

@@ -1,3 +1,4 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { Channel } from "@tauri-apps/api/core";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -150,12 +151,14 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       theme: THEMES[settings?.theme ?? "shellport-dark"] ?? THEMES["shellport-dark"],
       disableStdin: readOnly,
       convertEol: readOnly,
+      // OSC 8 hyperlinks printed by remote programs.
+      linkHandler: { activate: (_e, uri) => openExternal(uri), allowNonHttpProtocols: false },
     });
     const f = new FitAddon();
     const s = new SearchAddon();
     t.loadAddon(f);
     t.loadAddon(s);
-    t.loadAddon(new WebLinksAddon());
+    t.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
     const u = new Unicode11Addon();
     t.loadAddon(u);
     t.unicode.activeVersion = "11";
@@ -174,7 +177,8 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
         navigator.clipboard.readText().then((txt) => {
-          if (sessionId.current && !readOnly) api.termWrite(sessionId.current, txt).catch(() => {});
+          // paste() applies bracketed paste, so the shell doesn't run pasted newlines.
+          if (sessionId.current && !readOnly) t.paste(txt);
         });
         return false;
       }
@@ -362,4 +366,17 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       </div>
     </div>
   );
+}
+
+/** Open a link from terminal output in the system browser, after showing the full URL. */
+async function openExternal(uri: string) {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  const ok = await ask(`Open this link in your browser?\n\n${url.href}`, { title: "Open link", kind: "info", okLabel: "Open", cancelLabel: "Cancel" });
+  if (ok) api.openUrl(url.href).catch(() => {});
 }

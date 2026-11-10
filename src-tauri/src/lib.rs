@@ -2,6 +2,8 @@ mod commands;
 mod docker;
 mod docker_admin;
 mod error;
+mod glob;
+mod known_hosts;
 mod paths;
 mod sftp;
 mod ssh;
@@ -89,6 +91,8 @@ pub fn run() {
             commands::local_list,
             commands::local_home,
             commands::local_read_text,
+            commands::local_pick_file,
+            commands::open_url,
             commands::sftp_mkdir,
             commands::sftp_rename,
             commands::sftp_remove,

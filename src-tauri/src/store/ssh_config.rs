@@ -25,8 +25,17 @@ struct Block {
     opts: HashMap<String, String>,
 }
 
-fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8) {
-    if depth > 8 {
+/// Caps on what one import may read, whatever the Include graph looks like.
+const MAX_FILES: usize = 256;
+const MAX_BLOCKS: usize = 10_000;
+const MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8, files: &mut usize) {
+    if depth > 8 || *files >= MAX_FILES || out.len() >= MAX_BLOCKS {
+        return;
+    }
+    *files += 1;
+    if std::fs::metadata(path).map_or(true, |m| !m.is_file() || m.len() > MAX_FILE_BYTES) {
         return;
     }
     let Ok(text) = std::fs::read_to_string(path) else { return };
@@ -41,6 +50,7 @@ fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8) {
             None => continue,
         };
         match key.as_str() {
+            _ if out.len() >= MAX_BLOCKS => return,
             "host" => out.push(Block {
                 patterns: val.split_whitespace().map(String::from).collect(),
                 opts: HashMap::new(),
@@ -51,7 +61,7 @@ fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8) {
                     let p = expand_tilde(pat);
                     let p = if p.is_absolute() { p } else { base.join(p) };
                     for f in glob_simple(&p) {
-                        read_blocks(&f, out, depth + 1);
+                        read_blocks(&f, out, depth + 1, files);
                     }
                 }
             }
@@ -90,16 +100,7 @@ fn glob_simple(p: &Path) -> Vec<PathBuf> {
 }
 
 fn pattern_matches(pat: &str, host: &str) -> bool {
-    fn m(p: &[u8], h: &[u8]) -> bool {
-        match (p.first(), h.first()) {
-            (None, None) => true,
-            (Some(b'*'), _) => m(&p[1..], h) || (!h.is_empty() && m(p, &h[1..])),
-            (Some(b'?'), Some(_)) => m(&p[1..], &h[1..]),
-            (Some(a), Some(b)) if a == b => m(&p[1..], &h[1..]),
-            _ => false,
-        }
-    }
-    m(pat.as_bytes(), host.as_bytes())
+    crate::glob::glob_match(pat, host)
 }
 
 fn block_matches(b: &Block, alias: &str) -> bool {
@@ -118,7 +119,7 @@ fn block_matches(b: &Block, alias: &str) -> bool {
 
 pub fn parse_file(path: &Path) -> Vec<SshConfigEntry> {
     let mut blocks = Vec::new();
-    read_blocks(path, &mut blocks, 0);
+    read_blocks(path, &mut blocks, 0, &mut 0);
     let mut aliases: Vec<String> = Vec::new();
     for b in &blocks {
         for p in &b.patterns {
@@ -194,6 +195,19 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn include_bomb_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config");
+        // Each file includes itself 8 times: unbounded this is 8^9 reads.
+        let inc = format!("Include {0}\n", cfg.display()).repeat(8);
+        std::fs::write(&cfg, format!("{inc}Host a\n  HostName 1.2.3.4\n")).unwrap();
+        let t = std::time::Instant::now();
+        let e = parse_file(&cfg);
+        assert!(e.iter().any(|x| x.alias == "a"));
+        assert!(t.elapsed().as_secs() < 2);
+    }
 
     #[test]
     fn parses_hosts_defaults_and_include() {

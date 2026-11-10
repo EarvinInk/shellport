@@ -84,11 +84,17 @@ impl client::Handler for Client {
     async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         let pk = key.public_key();
         let path = known_hosts_file();
-        let (changed, changed_line) = match keys::check_known_hosts_path(&self.host, self.port, &pk, &path) {
-            Ok(true) => return Ok(true),
-            Ok(false) => (false, None),
-            Err(keys::Error::KeyChanged { line }) => (true, Some(line)),
-            Err(_) => (false, None), // missing/unreadable file: treat as unknown
+        let (changed, changed_line) = match crate::known_hosts::check(&self.host, self.port, &pk, &path) {
+            crate::known_hosts::Verdict::Known => return Ok(true),
+            crate::known_hosts::Verdict::Unknown => (false, None),
+            crate::known_hosts::Verdict::Changed { line } => (true, line),
+            crate::known_hosts::Verdict::Revoked { line } => {
+                let _ = self.app.emit(
+                    "app-error",
+                    format!("{}:{} presented a host key marked @revoked in known_hosts (line {line}). Connection refused.", self.host, self.port),
+                );
+                return Ok(false);
+            }
         };
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
@@ -109,6 +115,9 @@ impl client::Handler for Client {
             .and_then(|r| r.ok())
             .unwrap_or(HostKeyDecision::Reject);
         self.pending.lock().remove(&request_id);
+        // A changed key is either replaced after confirmation or rejected:
+        // never "connect once", which would send credentials to a possible MITM.
+        let decision = if changed && decision == HostKeyDecision::Once { HostKeyDecision::Reject } else { decision };
         if decision == HostKeyDecision::Trust {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);

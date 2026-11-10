@@ -1,3 +1,4 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { Channel } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import clsx from "clsx";
@@ -75,6 +76,9 @@ function usePane(loader: (p: string) => Promise<FileEntry[]>, initial: () => Pro
   return { path, entries, loading, err, selected, setSelected, load, back, refresh: () => load(path, false) };
 }
 
+/** Must match `sftp::EXISTS_PREFIX` in the backend. */
+const EXISTS_PREFIX = "local files exist:";
+
 export function SftpView({ hostId, active }: { hostId: string; active: boolean }) {
   const { error, toast } = useApp();
   const localLoader = useCallback((p: string) => api.localList(p), []);
@@ -88,7 +92,7 @@ export function SftpView({ hostId, active }: { hostId: string; active: boolean }
   const localRef = useRef(local);
   localRef.current = local;
 
-  const run = (dir: "up" | "down", source: string, destDir: string) => {
+  const run = (dir: "up" | "down", source: string, destDir: string, overwrite = false) => {
     const id = tSeq++;
     const name = source.split("/").filter(Boolean).pop() ?? source;
     const taskId = `xfer:${hostId}:${id}:${Date.now()}`;
@@ -102,10 +106,25 @@ export function SftpView({ hostId, active }: { hostId: string; active: boolean }
         if (dir === "up") remoteRef.current.refresh();
         else localRef.current.refresh();
       }
-      if (ev.type === "error") upd(ev.message === "cancelled" ? { state: "cancelled" } : { state: "error", message: ev.message });
+      if (ev.type === "error") {
+        if (ev.message.startsWith(EXISTS_PREFIX)) {
+          // Nothing was written yet: drop the row and ask before overwriting.
+          setTransfers((t) => t.filter((x) => x.id !== id));
+          const n = Number(ev.message.slice(EXISTS_PREFIX.length)) || 1;
+          ask(`${n} file${n === 1 ? "" : "s"} in ${destDir} would be overwritten by "${name}". Overwrite?`, {
+            title: "Overwrite local files?",
+            kind: "warning",
+            okLabel: "Overwrite",
+            cancelLabel: "Cancel",
+          }).then((ok) => ok && run(dir, source, destDir, true));
+        } else upd(ev.message === "cancelled" ? { state: "cancelled" } : { state: "error", message: ev.message });
+      }
     };
-    const p = dir === "up" ? api.sftpUpload(hostId, source, destDir, taskId, ch) : api.sftpDownload(hostId, source, destDir, taskId, ch);
-    p.catch((e) => upd({ state: "error", message: errMsg(e) }));
+    const p = dir === "up" ? api.sftpUpload(hostId, source, destDir, taskId, ch) : api.sftpDownload(hostId, source, destDir, taskId, ch, overwrite);
+    p.catch((e) => {
+      const m = errMsg(e);
+      if (!m.startsWith(EXISTS_PREFIX)) upd({ state: "error", message: m });
+    });
   };
 
   // Files dropped from the desktop file manager → upload to remote cwd.

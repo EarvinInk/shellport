@@ -91,8 +91,14 @@ pub struct NetworkInfo {
 
 // ---------- helpers ----------
 
+/// First `n` characters (never splits a multi-byte character).
+fn short(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
 fn valid_name(s: &str, extra: &str) -> Result<()> {
-    if s.is_empty() || s.len() > 255 || !s.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c) || extra.contains(c)) {
+    // Must start alphanumeric: a leading '-' would be parsed as a CLI flag.
+    if s.is_empty() || s.len() > 255 || !s.starts_with(|c: char| c.is_ascii_alphanumeric()) || !s.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c) || extra.contains(c)) {
         bail!("invalid name: {s:?}");
     }
     Ok(())
@@ -253,7 +259,7 @@ impl DockerBackend {
                 if do_containers {
                     let x = docker.prune_containers(None).await?;
                     let d = x.containers_deleted.unwrap_or_default();
-                    add(d.len(), x.space_reclaimed, d.into_iter().map(|i| format!("container {}", &i[..i.len().min(12)])).collect());
+                    add(d.len(), x.space_reclaimed, d.into_iter().map(|i| format!("container {}", short(&i, 12))).collect());
                 }
                 if do_networks {
                     let x = docker.prune_networks(None).await?;
@@ -276,7 +282,7 @@ impl DockerBackend {
                     let d = x.images_deleted.unwrap_or_default();
                     let lines: Vec<String> = d
                         .iter()
-                        .filter_map(|i| i.untagged.as_ref().map(|u| format!("untagged {u}")).or_else(|| i.deleted.as_ref().map(|u| format!("deleted {}", &u[..u.len().min(19)]))))
+                        .filter_map(|i| i.untagged.as_ref().map(|u| format!("untagged {u}")).or_else(|| i.deleted.as_ref().map(|u| format!("deleted {}", short(u, 19)))))
                         .collect();
                     let n = d.iter().filter(|i| i.deleted.is_some()).count();
                     add(n, x.space_reclaimed, lines);
@@ -765,7 +771,7 @@ pub async fn stream_multi_logs(
         let mut open = names.len();
         let prefix = |i: usize| {
             let n = &names[i];
-            let n = if n.len() > width { &n[..width] } else { n.as_str() };
+            let n: String = n.chars().take(width).collect();
             format!("\x1b[{}m{:<w$} |\x1b[0m ", COLORS[i % COLORS.len()], n, w = width)
         };
         while let Some((i, chunk)) = rx.recv().await {

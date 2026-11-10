@@ -30,6 +30,24 @@ pub struct KdfParams {
     pub p_cost: u32,
 }
 
+impl KdfParams {
+    /// Upper bounds accepted from a vault file header. The header is read
+    /// before anything is authenticated, so a tampered file must not be able to
+    /// demand terabytes of memory or hours of work.
+    const MAX_M_COST: u32 = 1024 * 1024; // KiB = 1 GiB
+    const MAX_T_COST: u32 = 20;
+    const MAX_P_COST: u32 = 16;
+
+    fn check(&self) -> Result<()> {
+        if self.m_cost == 0 || self.m_cost > Self::MAX_M_COST || self.t_cost == 0 || self.t_cost > Self::MAX_T_COST
+            || self.p_cost == 0 || self.p_cost > Self::MAX_P_COST
+        {
+            bail!("vault file has unreasonable key-derivation parameters (corrupted or tampered)");
+        }
+        Ok(())
+    }
+}
+
 impl Default for KdfParams {
     fn default() -> Self {
         // 64 MiB, 3 passes, 1 lane: OWASP-recommended Argon2id baseline.
@@ -99,7 +117,7 @@ impl From<&Secret> for SecretMeta {
 
 /// Input from the UI when creating/updating a secret. `None` value on update
 /// means "keep the existing value".
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretInput {
     pub id: Option<String>,
@@ -110,6 +128,18 @@ pub struct SecretInput {
     pub passphrase: Option<String>,
     #[serde(default)]
     pub notes: String,
+}
+
+impl std::fmt::Debug for SecretInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretInput")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .field("value", &self.value.as_ref().map(|_| "<redacted>"))
+            .field("passphrase", &self.passphrase.as_ref().map(|_| "<redacted>"))
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -177,6 +207,7 @@ fn parse_file(bytes: &[u8]) -> Result<ParsedFile<'_>> {
     }
     let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
     let params = KdfParams { m_cost: u(4), t_cost: u(8), p_cost: u(12) };
+    params.check()?;
     let mut salt = [0u8; 16];
     salt.copy_from_slice(&bytes[16..32]);
     let mut nonce = [0u8; 24];
@@ -272,7 +303,7 @@ impl Vault {
     fn save(&self) -> Result<()> {
         let key = self.key.as_ref().ok_or_else(|| anyhow!("vault is locked"))?;
         let data = self.data.as_ref().ok_or_else(|| anyhow!("vault is locked"))?;
-        let plain = Zeroizing::new(serde_json::to_vec(data)?);
+        let plain = to_json_zeroizing(data)?;
         let mut nonce = [0u8; 24];
         rand::thread_rng().fill_bytes(&mut nonce);
         let hdr = header(self.params, &self.salt, &nonce);
@@ -404,6 +435,26 @@ impl Vault {
     }
 }
 
+/// Serialize into a buffer sized exactly up front, so no partially-filled
+/// copies of the plaintext are freed (unwiped) while the Vec grows.
+fn to_json_zeroizing<T: Serialize>(v: &T) -> Result<Zeroizing<Vec<u8>>> {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 += b.len();
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut c = Count(0);
+    serde_json::to_writer(&mut c, v)?;
+    let mut out = Zeroizing::new(Vec::with_capacity(c.0));
+    serde_json::to_writer(&mut *out, v)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +512,27 @@ mod tests {
         bytes[8] ^= 1;
         std::fs::write(&path, &bytes).unwrap();
         assert!(Vault::new(path).unlock("correct horse").is_err());
+    }
+
+    #[test]
+    fn absurd_kdf_params_rejected_before_derivation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut v = Vault::new(path.clone());
+        v.create("correct horse", fast()).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes()); // m_cost ≈ 4 TiB
+        std::fs::write(&path, &bytes).unwrap();
+        let t = std::time::Instant::now();
+        let err = Vault::new(path).unlock("correct horse").unwrap_err();
+        assert!(format!("{err:#}").contains("key-derivation parameters"), "{err:#}");
+        assert!(t.elapsed().as_secs() < 2);
+    }
+
+    #[test]
+    fn secret_input_debug_is_redacted() {
+        let i = input("db", "hunter2");
+        assert!(!format!("{i:?}").contains("hunter2"));
     }
 
     #[test]
