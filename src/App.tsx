@@ -214,7 +214,7 @@ export default function App() {
         </div>
         <div className="relative min-h-0 flex-1">
           {tabs.length === 0 && (
-            <Empty icon={<SquareTerminal size={40} />} title="Welcome to Shellport">
+            <Empty icon={<img src="/logo.svg" alt="" className="h-14 w-14" draggable={false} />} title="Welcome to Shellport">
               Double-click a host to connect, open a local terminal with Ctrl+Shift+T, or manage containers from the Docker panel.
             </Empty>
           )}

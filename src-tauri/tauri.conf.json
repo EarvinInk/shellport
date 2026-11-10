@@ -30,13 +30,17 @@
       "deb",
       "appimage"
     ],
-    "category": "Utility",
-    "shortDescription": "SSH, SFTP and Docker client",
+    "category": "DeveloperTool",
+    "shortDescription": "SSH, SFTP and Docker client for Linux",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png"
-    ]
+    ],
+    "longDescription": "Shellport is a native Linux desktop app for working with servers: tabbed SSH and local terminals, a dual-pane SFTP file manager, Docker management for local and remote hosts, and an encrypted vault for passwords and keys.",
+    "homepage": "https://github.com/EarvinInk/shellport",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 The Shellport authors"
   }
 }

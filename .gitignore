@@ -5,3 +5,5 @@ src-tauri/gen
 *.log
 dev/build-release.log
 packages
+.idea/
+*.tsbuildinfo
