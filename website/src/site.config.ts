@@ -7,8 +7,8 @@ export const site = {
   name: 'Shellport',
   tagline: 'SSH, SFTP and Docker in one native Linux app.',
   url: 'https://shellport.example.com',
-  version: '0.1.1',
-  releaseDate: '2026-11-10',
+  version: '0.2.1',
+  releaseDate: '2026-11-11',
 
   author: {
     name: 'Your Name',
@@ -30,8 +30,8 @@ export const site = {
   },
 
   downloads: {
-    deb: { file: 'Shellport_0.1.1_amd64.deb', size: '~7 MB' },
-    appimage: { file: 'Shellport_0.1.1_amd64.AppImage', size: '~85 MB' },
+    deb: { file: 'Shellport_0.2.1_amd64.deb', size: '~9 MB' },
+    appimage: { file: 'Shellport_0.2.1_amd64.AppImage', size: '~85 MB' },
   },
 
   donate: {

@@ -4,6 +4,8 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
 ### Added
 - Production marker for hosts and database connections: a PROD badge on rows, tabs and the palette, and risky SQL always asks first on a production connection (or one reached through a production host).
 - Command palette (Ctrl+Shift+P) for hosts, databases, open tabs and app actions, ranked by use.
@@ -65,6 +67,7 @@ First public release (superseded by 0.1.1).
 - Encrypted vault (Argon2id + XChaCha20-Poly1305) for passwords, keys and tokens, with optional keyring unlock and ed25519 key generation.
 - Strict host-key checking against `~/.ssh/known_hosts`.
 
-[Unreleased]: https://github.com/EarvinInk/shellport/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/EarvinInk/shellport/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/EarvinInk/shellport/releases/tag/v0.2.1
 [0.1.1]: https://github.com/EarvinInk/shellport/releases/tag/v0.1.1
 
