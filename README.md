@@ -51,6 +51,17 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - A **startup command** per host, e.g. `cd /srv/app`.
 - **Hide the sidebar** (Ctrl+Shift+B) when you want the whole window for the terminal.
 
+### Work across servers
+
+- **Split panes**: several terminals in one tab, side by side or stacked, restored on startup. Save your open terminals as a **workspace** and reopen it from the palette.
+- **Commands library**: saved commands with `{{variables}}` (e.g. `{{service:nginx}}`), for all hosts or chosen hosts and groups. Paste them (never pressing Enter for you), or run them in every new terminal on those hosts.
+- **Broadcast typing** to every pane of a tab, with a banner while it's on.
+- **Run on hosts**: one command on many hosts at once, with a pass/fail line and output per host ("28 of 29 OK"). `{{host}}`, `{{user}}` and `{{name}}` are filled in per host.
+- Production hosts always ask before broadcasting or running a command on them.
+- **Multi-line pastes ask first** (on production hosts by default; always or never in Settings), and a notice tells you when a long command finishes in a background tab.
+- **Ctrl+click** an address, URL or archive name in terminal output to copy it, open it, or paste the command that extracts it.
+- **Activity & history**: one searchable local record of database queries (re-run in one click), multi-host runs and transfers. Opt-in **terminal logs** per host (plain text, a timestamp on each line), and *Save terminal output…* for a terminal's scrollback.
+
 ### SFTP file manager
 
 <img src="docs/screenshots/sftp.png" alt="Dual-pane SFTP file manager with local files on the left and the server on the right" width="900">
@@ -171,6 +182,9 @@ To update, download the newer `.deb` and run the same command.
 | Ctrl+Shift+P | Command palette |
 | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste in the terminal |
 | Ctrl+Shift+F | Search in the terminal or logs |
+| Ctrl+S | Save (remote file editor) |
+| Ctrl+Enter | Run the SQL script or selection (database tab) |
+| Ctrl+click in terminal output | Copy or open an address, URL or archive name |
 | Middle-click a tab | Close it |
 
 ## Security and privacy

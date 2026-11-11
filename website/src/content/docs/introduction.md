@@ -14,7 +14,8 @@ It's free, open source (MIT) and private by design: no accounts, no telemetry, n
 - Open tabbed **SSH and local terminals** with search, themes and one-click reconnect.
 - Save hosts in **colour-coded groups** and sign in with a password, a vault key, a key file or ssh-agent.
 - Reach private machines through **jump hosts** and forward ports with **`ssh -L`** tunnels.
-- **Upload and download** whole folders with progress and cancel, or drag files in from your desktop.
+- Split terminals into **panes**, save **workspaces**, keep a **commands library**, and **run a command on many hosts** at once.
+- **Transfer files** through one queue with pause, resume and retry, **copy between servers**, and **edit remote files** in the built-in editor or your own.
 - Manage **Docker** containers, images, volumes and networks, locally or on any SSH host.
 - Browse and query **PostgreSQL** databases, directly or through an SSH host.
 - Keep **passwords, private keys and API tokens** in an encrypted vault.
