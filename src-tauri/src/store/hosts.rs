@@ -36,6 +36,16 @@ pub struct PortForward {
     pub auto_start: bool,
 }
 
+/// What a terminal does when its connection drops unexpectedly.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OnDisconnect {
+    #[default]
+    Reconnect,
+    Ask,
+    Close,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
@@ -65,6 +75,30 @@ pub struct Host {
     /// Command to run after login (e.g. `cd /srv && exec bash`).
     #[serde(default)]
     pub startup_command: Option<String>,
+    #[serde(default)]
+    pub on_disconnect: OnDisconnect,
+    /// Run each terminal inside a tmux session that survives disconnects.
+    #[serde(default)]
+    pub tmux_session: bool,
+    /// A production server: risky actions on it always ask first.
+    #[serde(default)]
+    pub production: bool,
+    /// Markdown notes about this host.
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Kept in sync with this `Host` entry of `~/.ssh/config`.
+    #[serde(default)]
+    pub ssh_config_alias: Option<String>,
+    /// Save each terminal session's output (plain text) to a log file.
+    #[serde(default)]
+    pub log_terminal: bool,
+    /// Folders on this host saved as favourites in the file browser.
+    #[serde(default)]
+    pub favorite_paths: Vec<String>,
+    /// Watch terminal output for ZModem (`rz`/`sz`) transfers. Off by default:
+    /// stray ZModem bytes in output could otherwise pop up a file dialog.
+    #[serde(default)]
+    pub zmodem: bool,
 }
 
 fn default_port() -> u16 {
@@ -115,9 +149,22 @@ impl HostStore {
     }
 
     pub fn upsert(&mut self, mut host: Host) -> Result<Host> {
-        if host.hostname.trim().is_empty() {
-            bail!("hostname is required");
+        let addr = super::address::clean_host(&host.hostname)?;
+        host.hostname = addr.host;
+        if host.username.trim().is_empty() {
+            if let Some(u) = addr.user {
+                host.username = u;
+            }
         }
+        if let Some(p) = addr.port {
+            host.port = p;
+        }
+        if let Some(a) = host.ssh_config_alias.as_deref() {
+            if !super::ssh_config_edit::valid_alias(a) {
+                bail!("\"{a}\" can't be used as a name in ~/.ssh/config (no spaces or wildcards)");
+            }
+        }
+        host.notes = host.notes.filter(|n| !n.trim().is_empty());
         if host.name.trim().is_empty() {
             host.name = host.hostname.clone();
         }
@@ -145,6 +192,39 @@ impl HostStore {
         for h in self.hosts.iter_mut() {
             if h.jump_host_id.as_deref() == Some(id) {
                 h.jump_host_id = None;
+            }
+        }
+        self.save()
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        self.hosts.iter().any(|h| h.id == id)
+    }
+
+    /// Add hosts from a backup, keeping their ids; existing ids are skipped.
+    pub fn merge(&mut self, hosts: Vec<Host>) -> Result<usize> {
+        let mut n = 0;
+        for h in hosts {
+            if !self.has(&h.id) {
+                self.hosts.push(h);
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.save()?;
+        }
+        Ok(n)
+    }
+
+    /// Store changed copies of existing hosts as they are (no validation),
+    /// e.g. values refreshed from `~/.ssh/config`.
+    pub fn replace_all(&mut self, changed: Vec<Host>) -> Result<()> {
+        if changed.is_empty() {
+            return Ok(());
+        }
+        for c in changed {
+            if let Some(h) = self.hosts.iter_mut().find(|h| h.id == c.id) {
+                *h = c;
             }
         }
         self.save()

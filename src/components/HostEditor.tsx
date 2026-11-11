@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/ipc";
 import type { AuthMethod, Host, PortForward, SecretKind } from "../lib/types";
 import { useApp } from "../store";
-import { Button, Field, IconButton, Input, Modal, Select } from "./ui";
+import { Button, Checkbox, Field, IconButton, Input, Modal, Select } from "./ui";
 
 const blank = (): Host => ({
   id: "",
@@ -21,6 +21,11 @@ const blank = (): Host => ({
   forwards: [],
   keepaliveSecs: null,
   startupCommand: null,
+  production: false,
+  notes: null,
+  sshConfigAlias: null,
+  onDisconnect: "reconnect",
+  tmuxSession: false,
 });
 
 const COLORS = ["", "#8b5cf6", "#3b82f6", "#14b8a6", "#f43f5e", "#f59e0b", "#22c55e"];
@@ -94,6 +99,8 @@ export function HostEditor() {
     try {
       await api.hostDelete(h.id);
       await refreshHosts();
+      // Database tunnels through this host fall back to direct connections.
+      await useApp.getState().refreshDbs();
       setHostEditor(null);
     } catch (e) {
       error(e);
@@ -178,6 +185,10 @@ export function HostEditor() {
               </div>
             </Field>
           </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Production server" checked={!!h.production} onChange={(v) => set("production", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">Marks its tabs and makes risky actions on it ask first, including databases reached through it.</span>
+          </div>
         </Section>
 
         <Section title="Connection">
@@ -205,6 +216,21 @@ export function HostEditor() {
                   ))}
               </Select>
             </Field>
+          </div>
+          <div className="mt-4 grid grid-cols-[auto_1fr] items-start gap-x-4 gap-y-1">
+            <Checkbox
+              label="Keep in sync with ~/.ssh/config"
+              checked={h.sshConfigAlias != null}
+              onChange={(v) => set("sshConfigAlias", v ? (h.name || h.hostname).trim().replace(/[\s*?!"#=]+/g, "-") || "server" : null)}
+            />
+            {h.sshConfigAlias != null && (
+              <Input className="h-8" value={h.sshConfigAlias} onChange={(e) => set("sshConfigAlias", e.target.value)} placeholder="Host alias in the file" aria-label="Host alias in ~/.ssh/config" />
+            )}
+            <span className="col-span-2 pl-6 text-xs text-fg-subtle">
+              {h.sshConfigAlias != null
+                ? "The file stays the source of truth: changes there show up here, and saving here updates only this host's HostName, User, Port, IdentityFile and ProxyJump lines. Comments and other settings are kept; a backup is saved as config.shellport-backup. Passwords and vault keys stay in Shellport."
+                : "Use the same host from the ssh command line and other tools."}
+            </span>
           </div>
         </Section>
 
@@ -307,6 +333,31 @@ export function HostEditor() {
               <Input type="number" value={h.keepaliveSecs ?? 30} onChange={(e) => set("keepaliveSecs", Number(e.target.value) || null)} />
             </Field>
           </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <Field label="When the connection drops" hint="Sleep, Wi-Fi changes and server restarts">
+              <Select value={h.onDisconnect ?? "reconnect"} onChange={(e) => set("onDisconnect", e.target.value as Host["onDisconnect"])}>
+                <option value="reconnect">Reconnect automatically</option>
+                <option value="ask">Ask before reconnecting</option>
+                <option value="close">Close the tab</option>
+              </Select>
+            </Field>
+            <div className="flex flex-col justify-center gap-1.5 pt-5">
+              <Checkbox label="Keep sessions alive with tmux" checked={!!h.tmuxSession} onChange={(v) => set("tmuxSession", v)} />
+              <span className="pl-6 text-xs text-fg-subtle">Programs keep running if the connection drops, and reconnecting picks up where you left off. Needs tmux on the server.</span>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Detect ZModem transfers (rz / sz)" checked={!!h.zmodem} onChange={(v) => set("zmodem", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Running sz or rz in this host's terminal opens a file dialog. trzsz (trz / tsz) always works and is faster; turn this on only if you use lrzsz.
+            </span>
+          </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Save terminal output to a log file" checked={!!h.logTerminal} onChange={(v) => set("logTerminal", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Plain text, one file per session, kept only on this computer{h.id ? <> in <LogsDir hostId={h.id} /></> : ""}. Anything shown on screen is saved, passwords you type are not (they aren't echoed).
+            </span>
+          </div>
           <Field label="Remote Docker socket" className="mt-4">
             <Input value={h.dockerSocket ?? ""} onChange={(e) => set("dockerSocket", e.target.value || null)} placeholder="/var/run/docker.sock" />
           </Field>
@@ -366,4 +417,12 @@ function Section({ title, action, children }: { title: string; action?: React.Re
       {children}
     </section>
   );
+}
+
+function LogsDir({ hostId }: { hostId: string }) {
+  const [dir, setDir] = useState("");
+  useEffect(() => {
+    api.hostLogsDir(hostId).then(setDir).catch(() => {});
+  }, [hostId]);
+  return <code className="break-all rounded bg-surface-3 px-1">{dir || "…"}</code>;
 }

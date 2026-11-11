@@ -1,0 +1,134 @@
+---
+import Logo from './Logo.astro';
+import Icon from './Icon.astro';
+import { site } from '../site.config';
+
+const path = Astro.url.pathname;
+const links = [
+  { href: '/#features', label: 'Features', match: '/#' },
+  { href: '/docs/', label: 'Docs', match: '/docs' },
+  { href: '/download/', label: 'Download', match: '/download' },
+  { href: '/donate/', label: 'Donate', match: '/donate' },
+  { href: '/contact/', label: 'Contact', match: '/contact' },
+];
+const isActive = (m: string) => m !== '/#' && path.startsWith(m);
+---
+<header class="nav" id="nav">
+  <div class="inner container">
+    <a href="/" class="brand" aria-label="Shellport home"><Logo /></a>
+
+    <nav class="links" aria-label="Main">
+      {links.map((l) => <a href={l.href} class:list={{ active: isActive(l.match) }}>{l.label}</a>)}
+    </nav>
+
+    <div class="actions">
+      <a class="icon-btn gh" href={site.repo} aria-label="Shellport on GitHub" rel="noopener">
+        <Icon name="github" size={19} />
+      </a>
+      <button class="icon-btn theme-toggle" type="button" aria-label="Toggle colour theme">
+        <Icon name="sun" size={18} class="i-sun" /><Icon name="moon" size={18} class="i-moon" />
+      </button>
+      <a class="btn btn-primary btn-sm cta" href="/download/"><Icon name="download" />Download</a>
+      <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+        <Icon name="menu" size={20} class="i-menu" /><Icon name="x" size={20} class="i-x" />
+      </button>
+    </div>
+  </div>
+
+  <div class="mobile" id="mobile-menu" hidden>
+    <nav class="container" aria-label="Mobile">
+      {links.map((l) => <a href={l.href}>{l.label}<Icon name="chevronRight" size={18} /></a>)}
+      <a href={site.repo} rel="noopener">GitHub<Icon name="external" size={16} /></a>
+      <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download for Linux</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    height: var(--nav-h);
+    border-bottom: 1px solid transparent;
+    transition: background .25s, border-color .25s, backdrop-filter .25s;
+  }
+  .nav.scrolled, .nav.open {
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom-color: var(--border);
+  }
+  .inner { height: 100%; display: flex; align-items: center; gap: 32px; }
+  .brand { flex: none; }
+  .links { display: flex; gap: 4px; margin-right: auto; }
+  .links a {
+    padding: 7px 12px; border-radius: 8px;
+    font-size: 14.5px; font-weight: 500; color: var(--fg-muted);
+    transition: color .2s, background .2s;
+  }
+  .links a:hover { color: var(--fg); background: var(--surface-2); }
+  .links a.active { color: var(--fg); }
+  .actions { display: flex; align-items: center; gap: 8px; }
+  .icon-btn {
+    width: 38px; height: 38px; display: grid; place-items: center;
+    border-radius: 9px; border: 1px solid transparent; background: none;
+    color: var(--fg-muted); cursor: pointer; transition: color .2s, background .2s;
+  }
+  .icon-btn:hover { color: var(--fg); background: var(--surface-2); }
+  .theme-toggle :global(.i-moon) { display: none; }
+  :global(:root[data-theme='light']) .theme-toggle :global(.i-sun) { display: none; }
+  :global(:root[data-theme='light']) .theme-toggle :global(.i-moon) { display: block; }
+  .menu-btn { display: none; }
+  .menu-btn :global(.i-x) { display: none; }
+  .nav.open .menu-btn :global(.i-x) { display: block; }
+  .nav.open .menu-btn :global(.i-menu) { display: none; }
+
+  .mobile {
+    position: absolute; top: var(--nav-h); left: 0; right: 0;
+    height: calc(100dvh - var(--nav-h));
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .mobile nav { display: flex; flex-direction: column; padding-top: 12px; padding-bottom: 32px; }
+  .mobile a:not(.btn) {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 4px; font-size: 18px; font-weight: 550;
+    border-bottom: 1px solid var(--border); color: var(--fg);
+  }
+  .mobile a:not(.btn) :global(svg) { color: var(--fg-subtle); }
+  .mobile .btn { margin-top: 24px; }
+
+  @media (max-width: 900px) {
+    .links, .gh, .cta { display: none; }
+    .brand { margin-right: auto; }
+    .menu-btn { display: grid; }
+  }
+</style>
+
+<script>
+  const nav = document.getElementById('nav')!;
+  const menuBtn = nav.querySelector<HTMLButtonElement>('.menu-btn')!;
+  const mobile = document.getElementById('mobile-menu')!;
+
+  const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  const setOpen = (open: boolean) => {
+    nav.classList.toggle('open', open);
+    mobile.hidden = !open;
+    menuBtn.setAttribute('aria-expanded', String(open));
+    menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    document.body.style.overflow = open ? 'hidden' : '';
+  };
+  menuBtn.addEventListener('click', () => setOpen(mobile.hidden));
+  mobile.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('a')) setOpen(false); });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+  window.matchMedia('(min-width: 901px)').addEventListener('change', (m) => { if (m.matches) setOpen(false); });
+
+  nav.querySelector('.theme-toggle')!.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('theme', next); } catch {}
+  });
+</script>

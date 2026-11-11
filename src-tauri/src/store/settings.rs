@@ -18,6 +18,16 @@ pub struct Settings {
     pub docker_log_tail: u32,
     /// Reopen the previous session's tabs on startup (they connect when first shown).
     pub restore_tabs: bool,
+    /// Show whether hosts are up (a brief connection to each host's SSH port
+    /// every few minutes while Shellport is visible).
+    pub host_status_checks: bool,
+    /// Confirm multi-line pastes into terminals: "production" (only on
+    /// production hosts and shells that would run each line), "always", "off".
+    pub paste_guard: String,
+    /// Tell me when a long burst of output stops in a background tab, or it rings the bell.
+    pub background_notices: bool,
+    /// Command for "Open in my editor" (e.g. `code --wait`); empty uses the desktop's default app.
+    pub external_editor: String,
 }
 
 impl Default for Settings {
@@ -34,6 +44,10 @@ impl Default for Settings {
             local_shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()),
             docker_log_tail: 500,
             restore_tabs: true,
+            host_status_checks: true,
+            paste_guard: "production".into(),
+            background_notices: true,
+            external_editor: String::new(),
         }
     }
 }

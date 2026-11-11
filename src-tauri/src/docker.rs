@@ -433,7 +433,7 @@ pub async fn exec_shell(
                 None => "sh -c 'command -v bash >/dev/null && exec bash || exec sh'".into(),
             };
             let cmd = format!("docker exec -it {user_flag}{} {inner}", shell_quote(&id));
-            crate::term::open_ssh(app.clone(), conn.host.id.clone(), cols, rows, Some(cmd), out).await
+            crate::term::open_ssh(app.clone(), conn.host.id.clone(), cols, rows, Some(cmd), None, out).await
         }
     }
 }

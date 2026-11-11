@@ -1,19 +1,32 @@
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
-import { Box, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
+import { ArrowDownUp, Box, Columns2, Database, History, ScrollText, Search, FolderOpen, PanelLeftClose, PanelLeftOpen, Lock, LockOpen, Play, Plus, Server, Settings as SettingsIcon, ShieldCheck, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPromptDialog, HostKeyDialog, Toasts, UnlockDialog, useAppErrors } from "./components/Dialogs";
+import { DatabasesSidebar } from "./components/DatabasesSidebar";
+import { CommandPalette } from "./components/CommandPalette";
+import "./components/workPalette";
+import { DbEditor } from "./components/DbEditor";
+import { NotesDialog } from "./components/NotesDialog";
+import { PanesView } from "./components/PanesView";
+import { RunDialog } from "./components/RunDialog";
+import { TransfersPanel, activeTransfers } from "./components/TransfersPanel";
+import type { TransferView } from "./lib/types";
+import { ActivityView } from "./views/ActivityView";
+import { CommandsView, VariablesPrompt } from "./views/CommandsView";
 import { ForwardsDialog } from "./components/ForwardsDialog";
 import { HostEditor } from "./components/HostEditor";
 import { DockerSidebar, HostsSidebar } from "./components/HostsSidebar";
 import { ImportDialog } from "./components/ImportDialog";
-import { TerminalView } from "./components/TerminalView";
-import { Empty } from "./components/ui";
+import { Empty, ProdBadge } from "./components/ui";
 import { api } from "./lib/ipc";
-import { useApp, type Tab } from "./store";
+import { onWindowFocus } from "./lib/windowFocus";
+import { paneHosts, useApp, type Tab } from "./store";
+import { DbView } from "./views/DbView";
 import { DockerView, ExecView, LogsView, MultiLogsView } from "./views/DockerView";
 import { SettingsView } from "./views/SettingsView";
 import { SftpView } from "./views/SftpView";
+import { EditFileView } from "./views/EditFileView";
 import { VaultView } from "./views/VaultView";
 
 function TabIcon({ t }: { t: Tab }) {
@@ -23,6 +36,12 @@ function TabIcon({ t }: { t: Tab }) {
       return <Terminal size={s} />;
     case "ssh":
       return <SquareTerminal size={s} />;
+    case "panes":
+      return <Columns2 size={s} />;
+    case "commands":
+      return <ScrollText size={s} />;
+    case "activity":
+      return <History size={s} />;
     case "sftp":
       return <FolderOpen size={s} />;
     case "docker":
@@ -30,6 +49,8 @@ function TabIcon({ t }: { t: Tab }) {
     case "exec":
     case "mlogs":
       return <Box size={s} />;
+    case "db":
+      return <Database size={s} />;
     case "vault":
       return <ShieldCheck size={s} />;
     case "settings":
@@ -38,14 +59,20 @@ function TabIcon({ t }: { t: Tab }) {
 }
 
 function TabContent({ t, active }: { t: Tab; active: boolean }) {
-  const renameTab = useApp((s) => s.renameTab);
   switch (t.kind) {
+    // One component for every terminal tab, so splitting never restarts a running terminal.
     case "local":
-      return <TerminalView active={active} onTitle={(x) => renameTab(t.id, x)} open={(c, r, ch) => api.termOpenLocal(c, r, ch)} />;
     case "ssh":
-      return <TerminalView active={active} open={(c, r, ch) => api.termOpenSsh(t.hostId, c, r, ch)} />;
+    case "panes":
+      return <PanesView tab={t} active={active} />;
+    case "commands":
+      return <CommandsView />;
+    case "activity":
+      return <ActivityView hostId={t.hostId} dbId={t.dbId} />;
     case "sftp":
       return <SftpView hostId={t.hostId} active={active} />;
+    case "edit":
+      return <EditFileView tabId={t.id} hostId={t.hostId} path={t.path} sudo={!!t.sudo} active={active} />;
     case "docker":
       return <DockerView endpoint={t.endpoint} active={active} />;
     case "logs":
@@ -54,6 +81,8 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
       return <ExecView endpoint={t.endpoint} containerId={t.containerId} active={active} onTitle={() => {}} />;
     case "mlogs":
       return <MultiLogsView endpoint={t.endpoint} containers={t.containers} active={active} />;
+    case "db":
+      return <DbView tabId={t.id} dbId={t.dbId} active={active} />;
     case "vault":
       return <VaultView />;
     case "settings":
@@ -63,10 +92,13 @@ function TabContent({ t, active }: { t: Tab; active: boolean }) {
 
 export default function App() {
   useAppErrors();
-  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, loadSettings, toast } = useApp();
+  useApp((s) => s.dbs);
+  useApp((s) => s.hosts);
+  const tabActivity = useApp((s) => s.tabActivity);
+  const { tabs, activeTab, setActive, closeTab, openTab, sidebar, setSidebar, sidebarCollapsed, toggleSidebar, vault, refreshVault, refreshHosts, refreshDbs, loadSettings, toast } = useApp();
 
   useEffect(() => {
-    Promise.all([loadSettings(), refreshHosts()]).then(() => useApp.getState().restoreSession());
+    Promise.all([loadSettings(), refreshHosts(), refreshDbs(), useApp.getState().refreshLibrary()]).then(() => useApp.getState().restoreSession());
     useApp.getState().refreshForwards();
     refreshVault().then(async () => {
       const v = useApp.getState().vault;
@@ -79,14 +111,49 @@ export default function App() {
         }
       }
     });
+    // The transfer queue lives in the backend; keep a copy in step with it.
+    api.transferList().then(useApp.getState().setTransfers).catch(() => {});
+    const unT = listen<TransferView>("transfer-update", (e) => useApp.getState().upsertTransfer(e.payload));
     const un = listen("vault-locked", () => {
       refreshVault();
       toast("Vault locked after inactivity");
     });
     return () => {
       un.then((f) => f());
+      unT.then((f) => f());
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Host up/down dots (M1.5): a brief check every 5 minutes and on focus,
+  // only while the window is visible and the setting is on.
+  const statusOn = useApp((s) => s.settings?.hostStatusChecks ?? true);
+  const hostCount = useApp((s) => s.hosts.length);
+  useEffect(() => {
+    if (!statusOn || hostCount === 0) return;
+    let last = 0;
+    const check = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      useApp.getState().refreshHostStatus();
+    };
+    check();
+    const iv = setInterval(() => ((last = 0), check()), 5 * 60_000);
+    const offFocus = onWindowFocus(check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(iv);
+      offFocus();
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [statusOn, hostCount]);
+
+  // Hosts linked to ~/.ssh/config: pick up edits made in the file when the
+  // window comes back into focus.
+  const linked = useApp((s) => s.hosts.some((h) => h.sshConfigAlias));
+  useEffect(() => {
+    if (!linked) return;
+    return onWindowFocus(() => useApp.getState().refreshHosts());
+  }, [linked]);
 
   // Persist open tabs (debounced) once the previous session has been restored.
   const sessionReady = useApp((s) => s.sessionReady);
@@ -107,6 +174,10 @@ export default function App() {
       if (e.ctrlKey && e.shiftKey && e.code === "KeyT") {
         e.preventDefault();
         openTab({ kind: "local", title: "Local" });
+      }
+      if (e.ctrlKey && e.shiftKey && e.code === "KeyP") {
+        e.preventDefault();
+        useApp.getState().setPaletteOpen(!useApp.getState().paletteOpen);
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyB") {
         e.preventDefault();
@@ -137,8 +208,20 @@ export default function App() {
         <RailButton title="Hosts" active={!sidebarCollapsed && sidebar === "hosts"} onClick={() => (!sidebarCollapsed && sidebar === "hosts" ? toggleSidebar() : setSidebar("hosts"))}>
           <Server size={18} />
         </RailButton>
+        <RailButton title="Databases" active={!sidebarCollapsed && sidebar === "databases"} onClick={() => (!sidebarCollapsed && sidebar === "databases" ? toggleSidebar() : setSidebar("databases"))}>
+          <Database size={18} />
+        </RailButton>
         <RailButton title="Docker" active={!sidebarCollapsed && sidebar === "docker"} onClick={() => (!sidebarCollapsed && sidebar === "docker" ? toggleSidebar() : setSidebar("docker"))}>
           <Box size={18} />
+        </RailButton>
+        <RailButton title="Commands library" onClick={() => openTab({ kind: "commands", title: "Commands" }, { unique: true })}>
+          <ScrollText size={18} />
+        </RailButton>
+        <RailButton title="Run on several hosts" onClick={() => useApp.getState().setRunDialog({ hostIds: [] })}>
+          <Play size={18} />
+        </RailButton>
+        <RailButton title="Activity & history" onClick={() => openTab({ kind: "activity", title: "Activity" }, { unique: true })}>
+          <History size={18} />
         </RailButton>
         <RailButton title="Vault" onClick={() => openTab({ kind: "vault", title: "Vault" }, { unique: true })}>
           <ShieldCheck size={18} />
@@ -164,7 +247,7 @@ export default function App() {
 
       {/* Sidebar */}
       {!sidebarCollapsed && (
-        <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : <DockerSidebar />}</aside>
+        <aside className="w-72 shrink-0 border-r border-border bg-surface-1">{sidebar === "hosts" ? <HostsSidebar /> : sidebar === "databases" ? <DatabasesSidebar /> : <DockerSidebar />}</aside>
       )}
 
       {/* Workspace */}
@@ -181,6 +264,7 @@ export default function App() {
           {tabs.map((t) => (
             <div
               key={t.id}
+              style={tabColor(t) ? { boxShadow: `inset 0 2px 0 ${tabColor(t)}` } : undefined}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
@@ -192,8 +276,12 @@ export default function App() {
                 t.id === activeTab ? "border-border bg-surface-0 text-fg" : "border-transparent text-fg-muted hover:bg-surface-2",
               )}
             >
-              <TabIcon t={t} />
+              <span className="flex shrink-0">
+                <TabIcon t={t} />
+              </span>
               <span className="truncate">{t.title}</span>
+              {tabActivity[t.id] && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="New output" aria-label="New output" />}
+              {tabProduction(t) && <ProdBadge />}
               <button
                 className="rounded p-0.5 opacity-50 hover:bg-surface-4 hover:opacity-100 cursor-pointer"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -206,10 +294,21 @@ export default function App() {
           ))}
           <button
             title="New local terminal (Ctrl+Shift+T)"
-            className="mb-1 ml-1 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+            aria-label="New local terminal"
+            className="mb-1 ml-1 shrink-0 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
             onClick={() => openTab({ kind: "local", title: "Local" })}
           >
             <Plus size={14} />
+          </button>
+          <div className="flex-1" />
+          <TransfersButton />
+          <button
+            title="Search hosts, tabs and actions (Ctrl+Shift+P)"
+            aria-label="Open command palette"
+            className="mb-1 mr-1 flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+            onClick={() => useApp.getState().setPaletteOpen(true)}
+          >
+            <Search size={13} /> <kbd className="font-mono text-[10px] text-fg-subtle">Ctrl+Shift+P</kbd>
           </button>
         </div>
         <div className="relative min-h-0 flex-1">
@@ -227,14 +326,44 @@ export default function App() {
       </main>
 
       <HostEditor />
+      <DbEditor />
       <ImportDialog />
       <HostKeyDialog />
       <AuthPromptDialog />
       <ForwardsDialog />
       <UnlockDialog />
+      <NotesDialog />
+      <CommandPalette />
+      <RunDialog />
+      <TransfersPanel />
+      <VariablesPrompt />
       <Toasts />
     </div>
   );
+}
+
+/** Whether a tab belongs to a Production host or database (directly or via its SSH host). */
+function tabProduction(t: Tab): boolean {
+  const { hosts, dbs } = useApp.getState();
+  if (t.kind === "db") {
+    const d = dbs.find((x) => x.id === t.dbId);
+    return !!d && (!!d.production || !!hosts.find((h) => h.id === d.viaHostId)?.production);
+  }
+  if (t.kind === "panes") return paneHosts(t.layout).some((id) => hosts.find((h) => h.id === id)?.production);
+  if (t.kind === "activity") return false;
+  if ("hostId" in t) return !!hosts.find((h) => h.id === t.hostId)?.production;
+  if ("endpoint" in t) return !!hosts.find((h) => h.id === t.endpoint)?.production;
+  return false;
+}
+
+/** The colour of the host or database a tab belongs to, shown as a stripe so production stands out. */
+function tabColor(t: Tab): string | null {
+  const { hosts, dbs } = useApp.getState();
+  if (t.kind === "db") return dbs.find((d) => d.id === t.dbId)?.color ?? null;
+  if (t.kind === "panes") return paneHosts(t.layout).map((id) => hosts.find((h) => h.id === id)?.color).find(Boolean) ?? null;
+  if (t.kind === "activity") return null;
+  if ("hostId" in t) return hosts.find((h) => h.id === t.hostId)?.color ?? null;
+  return null;
 }
 
 function RailButton({ title, active, onClick, children }: { title: string; active?: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -249,6 +378,24 @@ function RailButton({ title, active, onClick, children }: { title: string; activ
       )}
     >
       {children}
+    </button>
+  );
+}
+
+/** Opens the Transfers panel; shows how many are running or waiting. */
+function TransfersButton() {
+  const n = useApp((s) => activeTransfers(s.transfers));
+  const any = useApp((s) => s.transfers.length > 0);
+  if (!any) return null;
+  return (
+    <button
+      title="Transfers"
+      aria-label="Open transfers"
+      className="mb-1 mr-1 flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs text-fg-muted hover:bg-surface-3 hover:text-fg cursor-pointer"
+      onClick={() => useApp.getState().setTransfersOpen(true)}
+    >
+      <ArrowDownUp size={13} className={n ? "text-accent" : ""} />
+      {n > 0 ? `${n} transfer${n === 1 ? "" : "s"}` : "Transfers"}
     </button>
   );
 }

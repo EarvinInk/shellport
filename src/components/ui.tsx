@@ -69,7 +69,9 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
     <select
       {...props}
       className={clsx(
-        "h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-fg outline-none focus:border-accent",
+        "h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-fg outline-none focus:border-accent",
+        // Full width unless the caller sets one (class order can't decide between two widths).
+        !/(^|\s)w-/.test(className ?? "") && "w-full",
         className,
       )}
     >
@@ -88,10 +90,10 @@ export function Field({ label, hint, children, className }: { label: string; hin
   );
 }
 
-export function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Checkbox({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <label className="flex items-center gap-2 text-sm text-fg cursor-pointer select-none">
-      <input type="checkbox" className="accent-[var(--color-accent)] h-4 w-4" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label className={clsx("flex items-center gap-2 text-sm text-fg select-none", disabled ? "opacity-60" : "cursor-pointer")}>
+      <input type="checkbox" disabled={disabled} className="accent-[var(--color-accent)] h-4 w-4" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
@@ -158,5 +160,14 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
       <div className="text-sm font-medium">{title}</div>
       {children && <div className="max-w-md text-sm text-fg-muted">{children}</div>}
     </div>
+  );
+}
+
+/** The Production marker as a small badge (sidebars, tabs, palette). */
+export function ProdBadge({ className }: { className?: string }) {
+  return (
+    <span className={clsx("shrink-0 rounded bg-danger/15 px-1 py-px text-[9px] font-bold uppercase tracking-wider text-danger", className)} title="Production: risky actions ask first">
+      Prod
+    </span>
   );
 }

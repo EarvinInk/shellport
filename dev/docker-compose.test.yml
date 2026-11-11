@@ -1,6 +1,10 @@
 # Disposable targets for manually testing Shellport. NOT for production.
 #   docker compose -f dev/docker-compose.test.yml up -d
 # SSH: test@127.0.0.1:2222, password "shellport-test"
+# Postgres: user/db "shellport", password "shellport-test"
+#   direct:        127.0.0.1:55432
+#   through SSH:   host "postgres", port 5432 (via the sshd host above)
+#   via PgBouncer (transaction mode, no prepared statements): 127.0.0.1:56432
 services:
   sshd:
     image: lscr.io/linuxserver/openssh-server:latest
@@ -19,6 +23,34 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:2222:2222"
+  postgres:
+    image: postgres:16-alpine
+    container_name: shellport-postgres
+    environment:
+      - POSTGRES_USER=shellport
+      - POSTGRES_PASSWORD=shellport-test
+      - POSTGRES_DB=shellport
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:55432:5432"
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: shellport-pgbouncer
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=shellport
+      - DB_PASSWORD=shellport-test
+      - DB_NAME=shellport
+      - AUTH_TYPE=scram-sha-256
+      - POOL_MODE=transaction
+      # Like older poolers and Supabase's: named prepared statements break.
+      - MAX_PREPARED_STATEMENTS=0
+      - IGNORE_STARTUP_PARAMETERS=extra_float_digits,application_name
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:56432:5432"
   logger:
     image: alpine:3.20
     container_name: shellport-logger

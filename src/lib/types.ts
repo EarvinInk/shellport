@@ -55,6 +55,33 @@ export interface Host {
   forwards: PortForward[];
   keepaliveSecs?: number | null;
   startupCommand?: string | null;
+  /** What a terminal does when the connection drops. */
+  onDisconnect?: "reconnect" | "ask" | "close";
+  /** Keep each terminal's shell alive in a tmux session on the server. */
+  tmuxSession?: boolean;
+  /** Production server: risky actions always ask first. */
+  production?: boolean;
+  /** Markdown notes about this host. */
+  notes?: string | null;
+  /** Folders saved as favourites in the file browser. */
+  favoritePaths?: string[];
+  /** Watch terminal output for ZModem (rz/sz) transfers. */
+  zmodem?: boolean;
+  /** Kept in sync with this `Host` entry in ~/.ssh/config. */
+  sshConfigAlias?: string | null;
+  /** Save terminal output to log files. */
+  logTerminal?: boolean;
+}
+
+export interface HostStatus {
+  id: string;
+  /** null: not checked (behind a jump host that is up). */
+  up: boolean | null;
+}
+
+export interface HostImportPreview {
+  names: string[];
+  existing: string[];
 }
 
 export interface SshConfigEntry {
@@ -69,7 +96,8 @@ export interface SshConfigEntry {
 export type TermEvent =
   | { type: "data"; data: string }
   | { type: "exit"; code?: number | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "lost"; reason: string };
 
 export interface FileEntry {
   name: string;
@@ -81,10 +109,54 @@ export interface FileEntry {
   permissions?: number | null;
 }
 
-export type TransferEvent =
-  | { type: "progress"; file: string; bytes: number; total: number; filesDone: number }
-  | { type: "done"; files: number; bytes: number }
-  | { type: "error"; message: string };
+/** A remote text file opened in the editor. */
+export interface TextFile {
+  text: string;
+  size: number;
+  mtime?: number | null;
+  /** Not valid UTF-8: shown read-only. */
+  readOnly: boolean;
+}
+
+/** A remote file's size and modified time after saving. */
+export interface Saved {
+  size: number;
+  mtime?: number | null;
+}
+
+/** A remote file open in the user's own editor. */
+export interface LocalEditView {
+  id: string;
+  hostId: string;
+  remotePath: string;
+  state: "watching" | "uploading" | "uploaded" | "conflict" | "error";
+  message?: string | null;
+}
+
+/** One end of a transfer. */
+export type Endpoint = { kind: "local"; path: string } | { kind: "remote"; hostId: string; path: string; sudo?: boolean };
+
+export type TransferState = "queued" | "running" | "paused" | "done" | "failed" | "cancelled";
+
+/** A transfer in the app-wide queue (M3.1). */
+export interface TransferView {
+  id: string;
+  name: string;
+  source: Endpoint;
+  destDir: Endpoint;
+  state: TransferState;
+  bytes: number;
+  total: number;
+  filesDone: number;
+  filesTotal: number;
+  current?: string | null;
+  /** Bytes per second over the last few seconds. */
+  speed: number;
+  etaSecs?: number | null;
+  error?: string | null;
+  /** Nothing was written: this many local files would be overwritten. */
+  wouldOverwrite?: number | null;
+}
 
 export interface ContainerInfo {
   id: string;
@@ -125,7 +197,86 @@ export interface Settings {
   localShell: string;
   dockerLogTail: number;
   restoreTabs: boolean;
+  hostStatusChecks: boolean;
+  pasteGuard: "production" | "always" | "off";
+  backgroundNotices: boolean;
+  /** Command for "Open in my editor" (e.g. `code --wait`); empty uses the desktop's default app. */
+  externalEditor: string;
 }
+
+// ---------- commands, workspaces, activity ----------
+
+export interface CommandScope {
+  hosts: string[];
+  groups: string[];
+}
+
+export interface SavedCommand {
+  id: string;
+  name: string;
+  command: string;
+  description: string;
+  scope: CommandScope;
+  runOnConnect: boolean;
+}
+
+/** A pane shows one terminal: local, or SSH to a host. */
+export type PaneTarget = { kind: "local" } | { kind: "ssh"; hostId: string };
+export type PaneNode = { t: "pane"; id: string; target: PaneTarget } | { t: "split"; dir: "row" | "col"; ratio: number; a: PaneNode; b: PaneNode };
+
+export interface WorkspaceLayout {
+  tabs: { title: string; layout: PaneNode }[];
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  layout: WorkspaceLayout;
+}
+
+export interface Library {
+  commands: SavedCommand[];
+  workspaces: Workspace[];
+}
+
+export interface HostResult {
+  hostId: string;
+  hostName: string;
+  ok: boolean;
+  exitCode?: number | null;
+  output: string;
+  durationMs: number;
+}
+
+export type ActivityKind = "query" | "multiRun" | "transfer" | "fileAction";
+
+export interface ActivityEntry {
+  id: string;
+  at: number;
+  kind: ActivityKind;
+  hostId?: string | null;
+  dbId?: string | null;
+  title: string;
+  detail: string;
+  ok: boolean;
+  message?: string | null;
+  durationMs?: number | null;
+  count?: number | null;
+  results: HostResult[];
+}
+
+export interface ActivityFilter {
+  hostId?: string;
+  dbId?: string;
+  kind?: ActivityKind;
+  search?: string;
+  limit?: number;
+}
+
+export type RunEvent =
+  | { type: "started"; hostId: string }
+  | { type: "done"; result: HostResult }
+  | { type: "finished"; ok: number; failed: number; activityId: string };
 
 export interface AuthPrompt {
   requestId: string;
@@ -190,4 +341,132 @@ export interface NetworkInfo {
   project?: string | null;
   builtin: boolean;
   containers: string[];
+}
+
+// ---------- databases ----------
+
+/** Must match `db::DbEngine` in the backend. */
+export type DbEngine = "postgres";
+
+export type SslMode = "disable" | "prefer" | "require" | "verify-full";
+
+/** How carefully queries on a connection are treated. */
+export type DbSafety = "off" | "confirm" | "read-only";
+
+export type TxState = "idle" | "open" | "failed";
+
+export interface DbProfile {
+  id: string;
+  name: string;
+  group: string;
+  engine: DbEngine;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  passwordSecretId?: string | null;
+  viaHostId?: string | null;
+  sslMode: SslMode;
+  safety: DbSafety;
+  production?: boolean;
+  options: Record<string, string>;
+  color?: string | null;
+  tags: string[];
+}
+
+export interface EngineInfo {
+  engine: DbEngine;
+  label: string;
+  defaultPort: number;
+  capabilities: { cancel: boolean; transactions: boolean; tls: boolean };
+}
+
+export interface SchemaNode {
+  name: string;
+  path: string[];
+  kind: string;
+  detail?: string | null;
+  hasChildren: boolean;
+  previewSql?: string | null;
+  insertText?: string | null;
+  system: boolean;
+}
+
+export type Cell =
+  | { t: "null" }
+  | { t: "bool"; v: boolean }
+  | { t: "int"; v: number }
+  | { t: "float"; v: number }
+  | { t: "text"; v: string }
+  | { t: "json"; v: string }
+  | { t: "bytes"; v: string };
+
+export interface StatementResult {
+  columns: { name: string; typeName: string }[];
+  rows: Cell[][];
+  rowsAffected?: number | null;
+  truncated: boolean;
+}
+
+export interface QueryOutput {
+  results: StatementResult[];
+  notices: string[];
+  elapsedMs: number;
+  tx: TxState;
+}
+
+export interface QueryRisk {
+  statement: string;
+  reason: string;
+}
+
+export type QueryOutcome = { kind: "done"; output: QueryOutput } | { kind: "needsConfirmation"; risks: QueryRisk[] };
+
+export interface DbConnected {
+  sessionId: string;
+  serverVersion: string;
+  engine: DbEngine;
+  safety: DbSafety;
+  /** The connection or its SSH host is marked Production. */
+  production: boolean;
+}
+
+export interface DbUrl {
+  host: string;
+  port?: number | null;
+  database: string;
+  username: string;
+  password?: string | null;
+  sslMode?: SslMode | null;
+  options: Record<string, string>;
+}
+
+// ---------- backup ----------
+
+export interface BackupCounts {
+  total: number;
+  new: number;
+}
+
+export interface BackupSummary {
+  createdAt: number;
+  app: string;
+  hosts: BackupCounts;
+  databases: BackupCounts;
+  commands: number;
+  workspaces: number;
+  history: number;
+  secrets?: BackupCounts | null;
+  vaultExists: boolean;
+  vaultUnlocked: boolean;
+}
+
+export interface BackupRestored {
+  hosts: number;
+  databases: number;
+  secrets: number;
+  commands: number;
+  workspaces: number;
+  history: number;
+  settings: boolean;
 }

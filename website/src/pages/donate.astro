@@ -1,0 +1,170 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Icon, { type IconName } from '../components/Icon.astro';
+import { site } from '../site.config';
+
+const platforms: { icon: IconName; name: string; kind: string; body: string; cta: string; href: string; color: string; featured?: boolean }[] = [
+  {
+    icon: 'github', name: 'GitHub Sponsors', kind: 'Monthly or one-time',
+    body: 'Sponsor directly on GitHub. Recurring support helps plan new features and keep up with releases.',
+    cta: 'Sponsor on GitHub', href: site.donate.githubSponsors, color: '#db61a2', featured: true,
+  },
+  {
+    icon: 'kofi', name: 'Ko-fi', kind: 'One-time tip',
+    body: 'Leave a quick one-off tip with card or PayPal. No account needed.',
+    cta: 'Support on Ko-fi', href: site.donate.kofi, color: '#29abe0',
+  },
+  {
+    icon: 'coffee', name: 'Buy Me a Coffee', kind: 'One-time or membership',
+    body: 'Buy a coffee (or three) to fuel the next late-night bug fix.',
+    cta: 'Buy a coffee', href: site.donate.buyMeACoffee, color: '#ffdd00',
+  },
+];
+
+const funds: { icon: IconName; title: string; body: string }[] = [
+  { icon: 'zap', title: 'New features', body: 'Time to build what users ask for most.' },
+  { icon: 'bug', title: 'Fixes & testing', body: 'Testing on more distributions and setups.' },
+  { icon: 'shield', title: 'Security work', body: 'Audits, dependency updates and hardening.' },
+  { icon: 'book', title: 'Docs & support', body: 'Better guides and faster answers.' },
+];
+
+const otherWays: { icon: IconName; title: string; body: string; href: string }[] = [
+  { icon: 'star', title: 'Star the repo', body: 'Helps others discover Shellport.', href: site.repo },
+  { icon: 'share', title: 'Tell a friend', body: 'Share it with your team or community.', href: '/' },
+  { icon: 'bug', title: 'Report bugs', body: 'Good bug reports are gold.', href: site.links.newBug },
+  { icon: 'code', title: 'Contribute', body: 'Code and docs pull requests welcome.', href: site.repo },
+];
+---
+<Base title="Donate" description="Shellport is free and open source. Support its development through GitHub Sponsors, Ko-fi or Buy Me a Coffee.">
+  <PageHeader
+    eyebrow="Support the project"
+    title='Keep Shellport <span class="grad-text">free and independent</span>'
+    lead="No ads, no tracking, no paid tier. Shellport is built independently, in spare time. If it makes your day easier, consider chipping in."
+  >
+    <div class="heart"><Icon name="heart" size={22} /></div>
+  </PageHeader>
+
+  <section class="container platforms">
+    {platforms.map((p, i) => (
+      <a class:list={['card', 'platform', 'reveal', { featured: p.featured }]} href={p.href} rel="noopener" style={`--brand:${p.color}; transition-delay:${i * 70}ms`}>
+        {p.featured && <span class="badge">Most impact</span>}
+        <div class="logo"><Icon name={p.icon} size={26} /></div>
+        <h2>{p.name}</h2>
+        <span class="kind">{p.kind}</span>
+        <p>{p.body}</p>
+        <span class:list={['btn', 'full', p.featured ? 'btn-primary' : 'btn-ghost']}>{p.cta}<Icon name="external" size={16} /></span>
+      </a>
+    ))}
+  </section>
+
+  <section class="section funds">
+    <div class="container" style="max-width:1120px">
+      <div class="section-head reveal">
+        <span class="eyebrow">Where it goes</span>
+        <h2>Every contribution goes back into Shellport</h2>
+      </div>
+      <div class="fund-grid reveal">
+        {funds.map((f) => (
+          <div class="fund">
+            <div class="icon-badge"><Icon name={f.icon} /></div>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="container other">
+    <div class="other-card reveal">
+      <div class="other-head">
+        <h2>Can’t donate? You can still help.</h2>
+        <p class="muted">Money isn’t the only way to support open source. These matter just as much.</p>
+      </div>
+      <div class="other-grid">
+        {otherWays.map((w) => (
+          <a href={w.href} rel="noopener" class="way">
+            <Icon name={w.icon} size={20} />
+            <div><strong>{w.title}</strong><span>{w.body}</span></div>
+          </a>
+        ))}
+      </div>
+    </div>
+    <p class="thanks">Thank you for supporting independent software. <Icon name="heart" size={15} /></p>
+  </section>
+</Base>
+
+<style>
+  .heart {
+    margin-top: 28px; width: 52px; height: 52px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(244, 63, 94, .12); color: #fb7185; border: 1px solid rgba(244, 63, 94, .3);
+    animation: beat 2.4s ease-in-out infinite;
+  }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 10% { transform: scale(1.12); } 20% { transform: scale(1); } 30% { transform: scale(1.08); } 40% { transform: scale(1); } }
+
+  .platforms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1120px; align-items: stretch; }
+  .platform { display: flex; flex-direction: column; padding: 32px; }
+  .platform::before {
+    content: ''; position: absolute; inset: 0 0 auto; height: 3px; border-radius: 18px 18px 0 0;
+    background: var(--brand); opacity: .85;
+  }
+  .platform:hover { border-color: color-mix(in srgb, var(--brand) 45%, var(--border)); }
+  .featured {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%), var(--surface-1);
+    box-shadow: 0 30px 60px -30px var(--glow);
+  }
+  .badge {
+    position: absolute; top: 20px; right: 20px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-bg); color: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .logo {
+    width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--brand) 14%, transparent);
+    color: var(--brand);
+    border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+  }
+  :global(:root[data-theme='light']) .platform[style*='#ffdd00'] .logo { color: #a88a00; }
+  .platform h2 { font-size: 22px; margin-top: 22px; }
+  .kind { font-size: 13px; color: var(--fg-subtle); margin-top: 4px; }
+  .platform p { color: var(--fg-muted); font-size: 15px; margin: 16px 0 26px; }
+  .full { width: 100%; margin-top: auto; }
+  @media (max-width: 960px) { .platforms { grid-template-columns: 1fr; max-width: 560px; } .platform { padding: 28px 24px; } }
+
+  .fund-grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: var(--surface-1); }
+  .fund { padding: 30px 26px; }
+  .fund + .fund { border-left: 1px solid var(--border); }
+  .fund h3 { font-size: 17px; margin: 18px 0 6px; }
+  .fund p { color: var(--fg-muted); font-size: 14.5px; }
+  @media (max-width: 900px) {
+    .fund-grid { grid-template-columns: 1fr 1fr; }
+    .fund:nth-child(3) { border-left: 0; }
+    .fund:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  }
+  @media (max-width: 520px) {
+    .fund-grid { grid-template-columns: 1fr; }
+    .fund + .fund { border-left: 0; border-top: 1px solid var(--border); }
+    .fund:nth-child(-n+2) { border-bottom: 0; }
+  }
+
+  .other { max-width: 1120px; padding-bottom: 112px; }
+  .other-card { padding: 40px; border-radius: 22px; border: 1px solid var(--border); background: var(--bg-elev); }
+  .other-head { margin-bottom: 28px; }
+  .other-head h2 { font-size: 26px; margin-bottom: 8px; }
+  .other-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .way {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-1);
+    transition: border-color .2s, transform .2s;
+  }
+  .way:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .way :global(svg) { color: var(--accent-soft); flex: none; margin-top: 2px; }
+  .way strong { display: block; font-size: 15px; font-weight: 600; }
+  .way span { font-size: 13.5px; color: var(--fg-muted); }
+  .thanks { margin-top: 32px; text-align: center; color: var(--fg-muted); display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .thanks :global(svg) { color: #fb7185; }
+  @media (max-width: 960px) { .other-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .other-grid { grid-template-columns: 1fr; } .other-card { padding: 28px 20px; } .other { padding-bottom: 72px; } }
+</style>

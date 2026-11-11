@@ -1,3 +1,5 @@
+import { ask } from "@tauri-apps/plugin-dialog";
+import { FileDown, FileUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../lib/ipc";
 import type { SshConfigEntry } from "../lib/types";
@@ -40,13 +42,51 @@ export function ImportDialog() {
     }
   };
 
+  const importFile = async () => {
+    try {
+      const p = await api.localPickFile("Choose a hosts file (CSV or JSON)");
+      if (!p) return;
+      const pv = await api.hostsImportPreview(p);
+      const fresh = pv.names.length - pv.existing.length;
+      if (fresh === 0) return toast("Every host in that file is already here", "info");
+      const list = pv.names.filter((n) => !pv.existing.includes(n));
+      const ok = await ask(
+        `Import ${fresh} host${fresh === 1 ? "" : "s"}?\n\n${list.slice(0, 12).join(", ")}${list.length > 12 ? `, and ${list.length - 12} more` : ""}` +
+          (pv.existing.length ? `\n\n${pv.existing.length} already here will be skipped.` : "") +
+          "\n\nPasswords and keys are not part of the file; choose them in each host's settings.",
+        { title: "Import hosts", okLabel: "Import" },
+      );
+      if (!ok) return;
+      const n = await api.hostsImportFile(p);
+      await refreshHosts();
+      toast(`Imported ${n} host${n === 1 ? "" : "s"}`, "success");
+      setImportOpen(false);
+    } catch (e) {
+      error(e);
+    }
+  };
+  const exportAs = (format: "json" | "csv") =>
+    api
+      .hostsExport(format)
+      .then((p) => p && toast(`Exported to ${p}`, "success"))
+      .catch(error);
+
   return (
     <Modal
-      title="Import from SSH config"
+      title="Import hosts"
       onClose={() => setImportOpen(false)}
       width="max-w-2xl"
       footer={
         <>
+          <span className="mr-auto flex items-center gap-1 text-xs text-fg-subtle">
+            Export all hosts:
+            <Button size="sm" variant="ghost" onClick={() => exportAs("json")}>
+              <FileDown size={12} /> JSON
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => exportAs("csv")}>
+              <FileDown size={12} /> CSV
+            </Button>
+          </span>
           <Button variant="ghost" onClick={() => setImportOpen(false)}>
             Cancel
           </Button>
@@ -56,6 +96,15 @@ export function ImportDialog() {
         </>
       }
     >
+      <div className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm">
+        <FileUp size={15} className="shrink-0 text-fg-subtle" />
+        <span className="flex-1 text-fg-muted">Have a CSV or JSON list (from Shellport or a spreadsheet)?</span>
+        <Button size="sm" onClick={importFile}>
+          Import a file…
+        </Button>
+      </div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">From an SSH config file</div>
+      <p className="mb-2 text-xs text-fg-subtle">Hosts imported from ~/.ssh/config stay in sync with it; edits in either place show up in both.</p>
       <div className="mb-3 flex gap-2">
         <Input value={path} readOnly />
         <Button

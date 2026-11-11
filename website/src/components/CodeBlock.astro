@@ -1,0 +1,18 @@
+---
+import Icon from './Icon.astro';
+interface Props { lines: string[]; prompt?: boolean; class?: string }
+const { lines, prompt = true, class: className } = Astro.props;
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const copyText = lines.filter((l) => !l.startsWith('#')).join('\n');
+const html = lines
+  .map((l) => l.startsWith('#')
+    ? `<span class="comment">${esc(l)}</span>`
+    : `${prompt ? '<span class="prompt">$ </span>' : ''}${esc(l)}`)
+  .join('\n');
+---
+<div class:list={['code', className]}>
+  <pre><code set:html={html} /></pre>
+  <button class="copy-btn" type="button" data-copy={copyText} aria-label="Copy to clipboard">
+    <Icon name="copy" class="i-copy" /><Icon name="check" class="i-check" />
+  </button>
+</div>

@@ -1,0 +1,74 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { site } from '../site.config';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+const { title, description = `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window. Free and open source.` } = Astro.props;
+const fullTitle = title ? `${title} · Shellport` : 'Shellport: SSH, SFTP and Docker for Linux';
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL('/og-image.png', Astro.site);
+---
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <meta name="theme-color" content="#080a0f" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script is:inline>
+      (function () {
+        var d = document.documentElement, t = null;
+        d.classList.remove('no-js');
+        try { t = localStorage.getItem('theme'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        d.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <Nav />
+    <main id="main"><slot /></main>
+    <Footer />
+
+    <script>
+      // Scroll reveal
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+      // Copy buttons
+      document.addEventListener('click', async (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.copy-btn');
+        if (!btn) return;
+        const text = btn.dataset.copy ?? btn.closest('.code, .astro-code-wrap')?.querySelector('pre')?.innerText ?? '';
+        try {
+          await navigator.clipboard.writeText(text.trimEnd());
+          btn.classList.add('copied');
+          setTimeout(() => btn.classList.remove('copied'), 1600);
+        } catch {}
+      });
+    </script>
+  </body>
+</html>
+
+<style>
+  .skip { position: absolute; left: -9999px; top: 8px; z-index: 100; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; }
+  .skip:focus { left: 8px; }
+</style>

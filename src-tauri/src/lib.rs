@@ -1,11 +1,21 @@
+mod activity;
+mod backup;
 mod commands;
+mod db;
 mod docker;
 mod docker_admin;
 mod error;
 mod glob;
 mod known_hosts;
 mod paths;
+mod runner;
 mod sftp;
+mod transfers;
+mod remote_edit;
+mod local_edit;
+mod sudo;
+mod remote_ops;
+mod local_fs;
 mod ssh;
 mod state;
 mod store;
@@ -50,6 +60,7 @@ pub fn run() {
         .manage(state)
         .setup(|app| {
             spawn_auto_lock(app.handle().clone());
+            local_edit::clean_leftovers();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +79,12 @@ pub fn run() {
             commands::secret_generate_key,
             commands::hosts_list,
             commands::host_save,
+            commands::hosts_status,
+            commands::hosts_export,
+            commands::text_save,
+            commands::hosts_import_preview,
+            commands::hosts_import_file,
+            commands::db_parse_url,
             commands::host_delete,
             commands::host_disconnect,
             commands::host_test,
@@ -86,6 +103,9 @@ pub fn run() {
             commands::term_write_b64,
             commands::term_resize,
             commands::term_close,
+            commands::term_flow,
+            commands::term_kill_tmux,
+            commands::ssh_probe,
             commands::sftp_home,
             commands::sftp_list,
             commands::local_list,
@@ -97,8 +117,30 @@ pub fn run() {
             commands::sftp_rename,
             commands::sftp_remove,
             commands::sftp_chmod,
-            commands::sftp_download,
-            commands::sftp_upload,
+            commands::sftp_read_text,
+            commands::sftp_sudo_open,
+            commands::sftp_sudo_close,
+            commands::remote_compress,
+            commands::remote_extract,
+            commands::local_fs_pick,
+            commands::local_fs_stat,
+            commands::local_fs_list,
+            commands::local_fs_read,
+            commands::local_fs_create,
+            commands::local_fs_append,
+            commands::local_fs_append_raw,
+            commands::local_edit_open,
+            commands::local_edit_list,
+            commands::local_edit_push,
+            commands::local_edit_stop,
+            commands::sftp_write_text,
+            commands::transfer_add,
+            commands::transfer_list,
+            commands::transfer_pause,
+            commands::transfer_resume,
+            commands::transfer_cancel,
+            commands::transfer_start_now,
+            commands::transfer_clear,
             commands::docker_info,
             commands::docker_list,
             commands::docker_images,
@@ -125,7 +167,38 @@ pub fn run() {
             commands::settings_save,
             commands::session_load,
             commands::session_save,
+            commands::db_engines,
+            commands::dbs_list,
+            commands::db_save,
+            commands::db_delete,
+            commands::db_test,
+            commands::db_connect,
+            commands::db_disconnect,
+            commands::db_children,
+            commands::db_query,
+            commands::db_cancel,
+            commands::db_tx_state,
+            commands::library_get,
+            commands::command_save,
+            commands::command_delete,
+            commands::workspace_save,
+            commands::workspace_delete,
+            commands::activity_list,
+            commands::activity_delete,
+            commands::activity_clear,
+            commands::hosts_run,
+            commands::host_logs_dir,
+            commands::backup_export,
+            commands::backup_pick,
+            commands::backup_preview,
+            commands::backup_import,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Shellport");
+        .build(tauri::generate_context!())
+        .expect("error while running Shellport")
+        .run(|app, ev| {
+            // Temp copies from "Open in my editor" don't outlive the app.
+            if let tauri::RunEvent::Exit = ev {
+                local_edit::stop_all(app);
+            }
+        });
 }

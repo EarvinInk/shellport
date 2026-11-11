@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BackupSection } from "../components/BackupSection";
 import { THEMES } from "../components/TerminalView";
 import { Button, Checkbox, Field, Input, Select } from "../components/ui";
 import type { Settings } from "../lib/types";
@@ -50,6 +51,28 @@ export function SettingsView() {
             <Checkbox label="Copy on select" checked={s.copyOnSelect} onChange={(v) => set("copyOnSelect", v)} />
             <Checkbox label="Restore tabs on startup" checked={s.restoreTabs} onChange={(v) => set("restoreTabs", v)} />
           </div>
+          <div className="flex flex-col gap-1">
+            <Checkbox label="Show whether hosts are up" checked={s.hostStatusChecks} onChange={(v) => set("hostStatusChecks", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Briefly connects to each host's SSH port every few minutes while Shellport is visible (no login). Some intrusion-prevention tools log these short connections; turn this off if yours does.
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Ask before pasting several lines" hint="Each line could run as a command.">
+              <Select value={s.pasteGuard} onChange={(e) => set("pasteGuard", e.target.value as typeof s.pasteGuard)}>
+                <option value="production">On production hosts, and shells without safe paste</option>
+                <option value="always">Always</option>
+                <option value="off">Never</option>
+              </Select>
+            </Field>
+            <div className="flex flex-col justify-center gap-1 pt-5">
+              <Checkbox label="Notices from background terminals" checked={s.backgroundNotices} onChange={(v) => set("backgroundNotices", v)} />
+              <span className="pl-6 text-xs text-fg-subtle">A bell, or output that stops after a long run, in a tab you're not looking at.</span>
+            </div>
+          </div>
+          <Field label="Editor for “Open in my editor”" hint="A command such as code --wait or gedit; the file's path is added at the end. Leave empty to use your desktop's default app.">
+            <Input value={s.externalEditor ?? ""} placeholder="Desktop default" onChange={(e) => set("externalEditor", e.target.value)} />
+          </Field>
           <p className="text-xs text-fg-subtle">Shortcuts: Ctrl+Shift+C copy · Ctrl+Shift+V paste · Ctrl+Shift+F search · Ctrl+Shift+T new local tab · Ctrl+Shift+W close tab</p>
         </section>
         <section className="space-y-3">
@@ -67,6 +90,9 @@ export function SettingsView() {
         <Button variant="primary" onClick={() => saveSettings(s)}>
           Save settings
         </Button>
+        <div className="border-t border-border pt-8">
+          <BackupSection />
+        </div>
       </div>
     </div>
   );
