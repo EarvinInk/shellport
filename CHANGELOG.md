@@ -22,6 +22,21 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 - SSH terminals reconnect automatically after sleep, network changes or server restarts; each host can choose reconnect, ask or close.
 - Optional tmux sessions per host keep programs running through dropped connections.
 - Encrypted backup and restore of hosts, database connections, settings and (optionally) vault secrets, in Settings.
+- Split panes: several terminals in one tab, side by side or stacked, restored on startup; save open terminals as a workspace and reopen it from the palette.
+- Commands library: saved commands with `{{variables}}`, for all hosts or chosen hosts and groups, optionally run in new terminals on those hosts.
+- Broadcast typing to every pane of a tab, with a banner while it is on and a confirmation when a production host is included.
+- Run on hosts: run one command on many hosts and see a pass/fail line and output per host (`{{host}}`, `{{user}}` and `{{name}}` are filled in per host); production hosts need confirmation every run.
+- Multi-line pastes into terminals ask first (on production hosts by default; always or never in Settings).
+- A notice when a command that ran 10 seconds or more finishes in a background tab (the shell prompt is back), alongside the existing notices for the bell and for long output going quiet.
+- Activity: one searchable record of queries (re-run in one click), multi-host runs and transfers, optionally included in backups; per-host terminal logs (opt-in) are plain text with a timestamp on each line, and *Save terminal output…* in the palette saves a terminal's scrollback to a file.
+- One transfer queue for all file browser tabs: uploads, downloads and server-to-server copies with speed and time left, pause, resume and retry (continuing where each file stopped, also after a dropped connection), and a Transfers panel in the tab bar and palette.
+- Favourite folders per host in the file browser, also listed in the palette.
+- A built-in editor (CodeMirror) for remote text files, host notes and SQL: syntax highlighting, search, and a warning before saving over changes made on the server meanwhile. Saves never leave a half-written file, keep permissions, and write through symlinks.
+- "Open in my editor" copies a remote file to a private temp folder, opens it in your editor (set the command in Settings) and uploads every save.
+- Work as root in the file browser through sudo (the password is asked for each session and never stored); production hosts ask first.
+- Compress files and folders on the server (.tar.gz or .zip) and extract archives into a new folder, as cancellable tasks recorded in Activity.
+- trzsz (`trz` / `tsz`) in SSH terminals, and ZModem (`rz` / `sz`) where you turn it on for a host; files go through native file dialogs.
+- Ctrl+click an address, URL or archive name in terminal output to copy it, open it, or fill in the command that extracts it.
 
 ### Changed
 - Query results only fetch the rows you asked for from the server, and the grid draws only the visible rows, so large results no longer freeze the window.

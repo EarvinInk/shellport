@@ -21,6 +21,13 @@ pub struct Settings {
     /// Show whether hosts are up (a brief connection to each host's SSH port
     /// every few minutes while Shellport is visible).
     pub host_status_checks: bool,
+    /// Confirm multi-line pastes into terminals: "production" (only on
+    /// production hosts and shells that would run each line), "always", "off".
+    pub paste_guard: String,
+    /// Tell me when a long burst of output stops in a background tab, or it rings the bell.
+    pub background_notices: bool,
+    /// Command for "Open in my editor" (e.g. `code --wait`); empty uses the desktop's default app.
+    pub external_editor: String,
 }
 
 impl Default for Settings {
@@ -38,6 +45,9 @@ impl Default for Settings {
             docker_log_tail: 500,
             restore_tabs: true,
             host_status_checks: true,
+            paste_guard: "production".into(),
+            background_notices: true,
+            external_editor: String::new(),
         }
     }
 }

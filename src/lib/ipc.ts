@@ -2,7 +2,13 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   BackupRestored,
   BackupSummary,
+  ActivityEntry,
+  ActivityFilter,
   ContainerInfo,
+  Library,
+  RunEvent,
+  SavedCommand,
+  Workspace,
   DbUrl,
   HostImportPreview,
   HostStatus,
@@ -28,9 +34,21 @@ import type {
   Settings,
   SshConfigEntry,
   TermEvent,
-  TransferEvent,
+  TransferView,
+  Endpoint,
+  TextFile,
+  Saved,
+  LocalEditView,
   VaultStatus,
 } from "./types";
+
+/** A picked local file or folder entry. */
+export interface LocalEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+}
 
 export type Opener = (cols: number, rows: number, ch: Channel<TermEvent>) => Promise<string>;
 
@@ -58,6 +76,7 @@ export const api = {
   hostTest: (id: string) => invoke<string>("host_test", { id }),
   hostsStatus: () => invoke<HostStatus[]>("hosts_status"),
   hostsExport: (format: "json" | "csv") => invoke<string | null>("hosts_export", { format }),
+  textSave: (title: string, fileName: string, text: string) => invoke<string | null>("text_save", { title, fileName, text }),
   hostsImportPreview: (path: string) => invoke<HostImportPreview>("hosts_import_preview", { path }),
   hostsImportFile: (path: string) => invoke<number>("hosts_import_file", { path }),
   dbParseUrl: (url: string) => invoke<DbUrl>("db_parse_url", { url }),
@@ -84,8 +103,22 @@ export const api = {
   dbTxState: (sessionId: string) => invoke<TxState>("db_tx_state", { sessionId }),
   dbCancel: (sessionId: string) => invoke<void>("db_cancel", { sessionId }),
 
+  // commands, workspaces, activity, multi-host runs
+  libraryGet: () => invoke<Library>("library_get"),
+  commandSave: (command: SavedCommand) => invoke<SavedCommand>("command_save", { command }),
+  commandDelete: (id: string) => invoke<void>("command_delete", { id }),
+  workspaceSave: (workspace: Workspace) => invoke<Workspace>("workspace_save", { workspace }),
+  workspaceDelete: (id: string) => invoke<void>("workspace_delete", { id }),
+  activityList: (filter: ActivityFilter) => invoke<ActivityEntry[]>("activity_list", { filter }),
+  activityDelete: (id: string) => invoke<void>("activity_delete", { id }),
+  activityClear: (hostId?: string, dbId?: string) => invoke<void>("activity_clear", { hostId, dbId }),
+  hostsRun: (hostIds: string[], command: string, timeoutSecs: number, confirmedProduction: boolean, onEvent: Channel<RunEvent>) =>
+    invoke<string>("hosts_run", { hostIds, command, timeoutSecs, confirmedProduction, onEvent }),
+  hostLogsDir: (hostId: string) => invoke<string>("host_logs_dir", { hostId }),
+
   // backup
-  backupExport: (passphrase: string, includeSecrets: boolean) => invoke<string | null>("backup_export", { passphrase, includeSecrets }),
+  backupExport: (passphrase: string, includeSecrets: boolean, includeHistory = false) =>
+    invoke<string | null>("backup_export", { passphrase, includeSecrets, includeHistory }),
   backupPick: () => invoke<string | null>("backup_pick"),
   backupPreview: (path: string, passphrase: string) => invoke<BackupSummary>("backup_preview", { path, passphrase }),
   backupImport: (path: string, passphrase: string, replaceSettings: boolean) =>
@@ -106,21 +139,47 @@ export const api = {
 
   // sftp
   sftpHome: (hostId: string) => invoke<string>("sftp_home", { hostId }),
-  sftpList: (hostId: string, path: string) => invoke<FileEntry[]>("sftp_list", { hostId, path }),
+  sftpList: (hostId: string, path: string, sudo = false) => invoke<FileEntry[]>("sftp_list", { hostId, path, sudo }),
   localList: (path: string) => invoke<FileEntry[]>("local_list", { path }),
   localHome: () => invoke<string>("local_home"),
   localReadText: (path: string) => invoke<string>("local_read_text", { path }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   /** Native file picker run by the backend; only files picked here can be read by path. */
   localPickFile: (title: string, directory?: string) => invoke<string | null>("local_pick_file", { title, directory }),
-  sftpMkdir: (hostId: string, path: string) => invoke<void>("sftp_mkdir", { hostId, path }),
-  sftpRename: (hostId: string, from: string, to: string) => invoke<void>("sftp_rename", { hostId, from, to }),
-  sftpRemove: (hostId: string, path: string) => invoke<void>("sftp_remove", { hostId, path }),
-  sftpChmod: (hostId: string, path: string, mode: number) => invoke<void>("sftp_chmod", { hostId, path, mode }),
-  sftpDownload: (hostId: string, remote: string, localDir: string, transferId: string, onEvent: Channel<TransferEvent>, overwrite = false) =>
-    invoke<void>("sftp_download", { hostId, remote, localDir, overwrite, transferId, onEvent }),
-  sftpUpload: (hostId: string, local: string, remoteDir: string, transferId: string, onEvent: Channel<TransferEvent>) =>
-    invoke<void>("sftp_upload", { hostId, local, remoteDir, transferId, onEvent }),
+  sftpMkdir: (hostId: string, path: string, sudo = false) => invoke<void>("sftp_mkdir", { hostId, path, sudo }),
+  sftpRename: (hostId: string, from: string, to: string, sudo = false) => invoke<void>("sftp_rename", { hostId, from, to, sudo }),
+  sftpRemove: (hostId: string, path: string, sudo = false) => invoke<void>("sftp_remove", { hostId, path, sudo }),
+  sftpChmod: (hostId: string, path: string, mode: number, sudo = false) => invoke<void>("sftp_chmod", { hostId, path, mode, sudo }),
+  sftpReadText: (hostId: string, path: string, sudo = false) => invoke<TextFile>("sftp_read_text", { hostId, path, sudo }),
+  sftpWriteText: (hostId: string, path: string, text: string, expectedSize: number | null, expectedMtime: number | null, force = false, sudo = false) =>
+    invoke<Saved>("sftp_write_text", { hostId, path, text, expectedSize, expectedMtime, force, sudo }),
+  /** Start the root SFTP session (M3.3); the password is only needed when sudo asks for one. */
+  sftpSudoOpen: (hostId: string, password?: string) => invoke<void>("sftp_sudo_open", { hostId, password }),
+  sftpSudoClose: (hostId: string) => invoke<void>("sftp_sudo_close", { hostId }),
+  remoteCompress: (hostId: string, dir: string, names: string[], archive: string, format: "targz" | "zip", sudo: boolean, password: string | undefined, taskId: string) =>
+    invoke<string>("remote_compress", { hostId, dir, names, archive, format, sudo, password, taskId }),
+  remoteExtract: (hostId: string, archive: string, overwrite: boolean, sudo: boolean, password: string | undefined, taskId: string) =>
+    invoke<string>("remote_extract", { hostId, archive, overwrite, sudo, password, taskId }),
+  // Local files for in-terminal transfers; only picked files and folders are reachable.
+  localFsPick: (folder: boolean, multiple: boolean, write: boolean, title: string) => invoke<string[]>("local_fs_pick", { folder, multiple, write, title }),
+  localFsStat: (path: string) => invoke<LocalEntry>("local_fs_stat", { path }),
+  localFsList: (path: string) => invoke<LocalEntry[]>("local_fs_list", { path }),
+  localFsRead: (path: string, offset: number, len: number) => invoke<ArrayBuffer>("local_fs_read", { path, offset, len }),
+  localFsCreate: (dir: string, name: string, folder: boolean) => invoke<string>("local_fs_create", { dir, name, folder }),
+  localFsAppend: (path: string, data: string) => invoke<void>("local_fs_append", { path, data }),
+  /** Append raw bytes (no base64 on the way). */
+  localFsAppendBytes: (path: string, data: Uint8Array) => invoke<void>("local_fs_append_raw", data, { headers: { "x-path": encodeURIComponent(path) } }),
+  localEditOpen: (hostId: string, path: string) => invoke<LocalEditView>("local_edit_open", { hostId, path }),
+  localEditList: () => invoke<LocalEditView[]>("local_edit_list"),
+  localEditPush: (id: string, force = false) => invoke<void>("local_edit_push", { id, force }),
+  localEditStop: (id: string) => invoke<void>("local_edit_stop", { id }),
+  transferAdd: (source: Endpoint, destDir: Endpoint, overwrite = false) => invoke<string>("transfer_add", { source, destDir, overwrite }),
+  transferList: () => invoke<TransferView[]>("transfer_list"),
+  transferPause: (id: string) => invoke<void>("transfer_pause", { id }),
+  transferResume: (id: string, overwrite = false) => invoke<void>("transfer_resume", { id, overwrite }),
+  transferCancel: (id: string) => invoke<void>("transfer_cancel", { id }),
+  transferStartNow: (id: string) => invoke<void>("transfer_start_now", { id }),
+  transferClear: (ids?: string[]) => invoke<void>("transfer_clear", { ids }),
 
   // docker
   dockerInfo: (endpoint: string) => invoke<EndpointInfo>("docker_info", { endpoint }),

@@ -63,8 +63,14 @@ export interface Host {
   production?: boolean;
   /** Markdown notes about this host. */
   notes?: string | null;
+  /** Folders saved as favourites in the file browser. */
+  favoritePaths?: string[];
+  /** Watch terminal output for ZModem (rz/sz) transfers. */
+  zmodem?: boolean;
   /** Kept in sync with this `Host` entry in ~/.ssh/config. */
   sshConfigAlias?: string | null;
+  /** Save terminal output to log files. */
+  logTerminal?: boolean;
 }
 
 export interface HostStatus {
@@ -103,10 +109,54 @@ export interface FileEntry {
   permissions?: number | null;
 }
 
-export type TransferEvent =
-  | { type: "progress"; file: string; bytes: number; total: number; filesDone: number }
-  | { type: "done"; files: number; bytes: number }
-  | { type: "error"; message: string };
+/** A remote text file opened in the editor. */
+export interface TextFile {
+  text: string;
+  size: number;
+  mtime?: number | null;
+  /** Not valid UTF-8: shown read-only. */
+  readOnly: boolean;
+}
+
+/** A remote file's size and modified time after saving. */
+export interface Saved {
+  size: number;
+  mtime?: number | null;
+}
+
+/** A remote file open in the user's own editor. */
+export interface LocalEditView {
+  id: string;
+  hostId: string;
+  remotePath: string;
+  state: "watching" | "uploading" | "uploaded" | "conflict" | "error";
+  message?: string | null;
+}
+
+/** One end of a transfer. */
+export type Endpoint = { kind: "local"; path: string } | { kind: "remote"; hostId: string; path: string; sudo?: boolean };
+
+export type TransferState = "queued" | "running" | "paused" | "done" | "failed" | "cancelled";
+
+/** A transfer in the app-wide queue (M3.1). */
+export interface TransferView {
+  id: string;
+  name: string;
+  source: Endpoint;
+  destDir: Endpoint;
+  state: TransferState;
+  bytes: number;
+  total: number;
+  filesDone: number;
+  filesTotal: number;
+  current?: string | null;
+  /** Bytes per second over the last few seconds. */
+  speed: number;
+  etaSecs?: number | null;
+  error?: string | null;
+  /** Nothing was written: this many local files would be overwritten. */
+  wouldOverwrite?: number | null;
+}
 
 export interface ContainerInfo {
   id: string;
@@ -148,7 +198,85 @@ export interface Settings {
   dockerLogTail: number;
   restoreTabs: boolean;
   hostStatusChecks: boolean;
+  pasteGuard: "production" | "always" | "off";
+  backgroundNotices: boolean;
+  /** Command for "Open in my editor" (e.g. `code --wait`); empty uses the desktop's default app. */
+  externalEditor: string;
 }
+
+// ---------- commands, workspaces, activity ----------
+
+export interface CommandScope {
+  hosts: string[];
+  groups: string[];
+}
+
+export interface SavedCommand {
+  id: string;
+  name: string;
+  command: string;
+  description: string;
+  scope: CommandScope;
+  runOnConnect: boolean;
+}
+
+/** A pane shows one terminal: local, or SSH to a host. */
+export type PaneTarget = { kind: "local" } | { kind: "ssh"; hostId: string };
+export type PaneNode = { t: "pane"; id: string; target: PaneTarget } | { t: "split"; dir: "row" | "col"; ratio: number; a: PaneNode; b: PaneNode };
+
+export interface WorkspaceLayout {
+  tabs: { title: string; layout: PaneNode }[];
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  layout: WorkspaceLayout;
+}
+
+export interface Library {
+  commands: SavedCommand[];
+  workspaces: Workspace[];
+}
+
+export interface HostResult {
+  hostId: string;
+  hostName: string;
+  ok: boolean;
+  exitCode?: number | null;
+  output: string;
+  durationMs: number;
+}
+
+export type ActivityKind = "query" | "multiRun" | "transfer" | "fileAction";
+
+export interface ActivityEntry {
+  id: string;
+  at: number;
+  kind: ActivityKind;
+  hostId?: string | null;
+  dbId?: string | null;
+  title: string;
+  detail: string;
+  ok: boolean;
+  message?: string | null;
+  durationMs?: number | null;
+  count?: number | null;
+  results: HostResult[];
+}
+
+export interface ActivityFilter {
+  hostId?: string;
+  dbId?: string;
+  kind?: ActivityKind;
+  search?: string;
+  limit?: number;
+}
+
+export type RunEvent =
+  | { type: "started"; hostId: string }
+  | { type: "done"; result: HostResult }
+  | { type: "finished"; ok: number; failed: number; activityId: string };
 
 export interface AuthPrompt {
   requestId: string;
@@ -325,6 +453,9 @@ export interface BackupSummary {
   app: string;
   hosts: BackupCounts;
   databases: BackupCounts;
+  commands: number;
+  workspaces: number;
+  history: number;
   secrets?: BackupCounts | null;
   vaultExists: boolean;
   vaultUnlocked: boolean;
@@ -334,5 +465,8 @@ export interface BackupRestored {
   hosts: number;
   databases: number;
   secrets: number;
+  commands: number;
+  workspaces: number;
+  history: number;
   settings: boolean;
 }

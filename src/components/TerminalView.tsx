@@ -5,12 +5,55 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import { RotateCcw, Search, WifiOff, X } from "lucide-react";
+import { Copy, ExternalLink, PackageOpen, RotateCcw, Search, WifiOff, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, b64ToBytes, binaryStringToB64, errMsg, type Opener } from "../lib/ipc";
+import type { TermTransfers } from "../lib/termTransfers";
 import type { TermEvent } from "../lib/types";
-import { setTerminalPaster, useApp } from "../store";
+import { extractCommand, isLoopback, registerOutputLinks, type OutputLink } from "../lib/termLinks";
+import { setTerminalPaster, setTerminalReader, setTerminalWriter, terminalWriter, useApp } from "../store";
 import { Button, IconButton } from "./ui";
+
+function bytesToB64(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** Scrollback and screen as plain text (wrapped rows joined, trailing blank rows dropped). */
+function bufferText(t: Terminal): string {
+  const b = t.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < b.length; i++) {
+    const row = b.getLine(i);
+    if (!row) continue;
+    const text = row.translateToString(true);
+    if (row.isWrapped && lines.length) lines[lines.length - 1] += text;
+    else lines.push(text);
+  }
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  return lines.join("\n") + "\n";
+}
+
+/** Does the cursor sit right after something that looks like a shell prompt (`$`, `#`, `%`, `>`, `❯`)? */
+export function atPrompt(t: Terminal): boolean {
+  const b = t.buffer.active;
+  const row = b.getLine(b.baseY + b.cursorY);
+  return !!row && isPromptText(row.translateToString(true, 0, b.cursorX));
+}
+export function isPromptText(beforeCursor: string): boolean {
+  // `%` only after a non-digit, so "45%" from a stalled download doesn't count.
+  return /\S.*(?:[$#>❯]|[^\d\s]%)\s?$/.test(beforeCursor) || /^[$#%>❯]\s?$/.test(beforeCursor);
+}
+
+/** "45s", "3m 05s", "1h 02m". */
+export function formatSpan(ms: number): string {
+  const s = Math.round(ms / 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${p(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${p(Math.floor(s / 60) % 60)}m`;
+}
 
 export const THEMES: Record<string, ITheme> = {
   "shellport-dark": {
@@ -123,8 +166,18 @@ interface Props {
   probeHostId?: string;
   /** Close the tab (used by the "close" disconnect policy). */
   onCloseTab?: () => void;
-  /** Tab id: registers a paster so notes and the palette can hand text to this terminal. */
+  /** Pane (or tab) id: registers a paster and a writer so notes, the palette and broadcast can reach this terminal. */
   tabId?: string;
+  /** The tab holding this pane; its broadcast group decides where typing goes. */
+  groupTabId?: string;
+  /** On a production host: multi-line pastes always ask first (app rule 2). */
+  production?: boolean;
+  /** Name used in background notices ("Output stopped in …"). */
+  label?: string;
+  /** Called when output arrives while this terminal isn't visible. */
+  onActivity?: () => void;
+  /** In-terminal file transfers (M3.1): trzsz always, ZModem when the host allows it. */
+  transfers?: { zmodem: boolean };
 }
 
 type Status = "connecting" | "open" | "closed" | "error" | "lost";
@@ -137,7 +190,7 @@ const FATAL = /unlock the vault|authentication|permission denied|host key|no .* 
 const FLOW_HIGH = 2 * 1024 * 1024;
 const FLOW_LOW = 512 * 1024;
 
-export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar, onLost, probeHostId, onCloseTab, tabId }: Props) {
+export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClosed, generation = 0, toolbar, onLost, probeHostId, onCloseTab, tabId, groupTabId, production, label, onActivity, transfers }: Props) {
   const settings = useApp((s) => s.settings);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -161,8 +214,39 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
 
   const openRef = useRef(open);
   openRef.current = open;
-  const cbRef = useRef({ onTitle, onOpened, onClosed, onLost, onCloseTab });
-  cbRef.current = { onTitle, onOpened, onClosed, onLost, onCloseTab };
+  const cbRef = useRef({ onTitle, onOpened, onClosed, onLost, onCloseTab, onActivity, transfers });
+  cbRef.current = { onTitle, onOpened, onClosed, onLost, onCloseTab, onActivity, transfers };
+  /** trzsz / ZModem layer for the current session, once loaded. */
+  const xfer = useRef<TermTransfers | null>(null);
+  const ctx = useRef({ production, label, active, tabId, groupTabId });
+  ctx.current = { production, label, active, tabId, groupTabId };
+  /** When Enter was last pressed at the shell (0: no command running that we know of). */
+  const cmdStart = useRef(0);
+  const markCommand = useCallback((d: string) => {
+    const t = term.current;
+    if (d.includes("\r") && t && t.buffer.active.type === "normal") cmdStart.current = Date.now();
+  }, []);
+
+  /**
+   * Paste with the guard (M2.4): multi-line text asks first on production
+   * hosts, when the shell would run each line at once, or always if the
+   * user chose so. Never presses Enter for single lines.
+   */
+  const guardedPaste = useCallback(async (text: string) => {
+    const t = term.current;
+    if (!t || !sessionId.current) return;
+    const multi = /\r|\n/.test(text.replace(/\s+$/, ""));
+    const mode = useApp.getState().settings?.pasteGuard ?? "production";
+    const unsafeShell = !t.modes.bracketedPasteMode;
+    if (multi && mode !== "off" && (mode === "always" || ctx.current.production || unsafeShell)) {
+      const lines = text.replace(/\s+$/, "").split(/\r\n|\r|\n/).length;
+      const why = ctx.current.production ? `${ctx.current.label ?? "This host"} is a production server.` : unsafeShell ? "This shell runs each pasted line immediately." : "";
+      const ok = await ask(`${why} Paste ${lines} lines?`.trim(), { title: "Paste several lines?", kind: "warning", okLabel: "Paste" });
+      if (!ok) return;
+    }
+    t.paste(multi ? text : text.replace(/[\r\n]+$/, ""));
+    t.focus();
+  }, []);
 
   const stopTimer = () => {
     if (timer.current) clearInterval(timer.current);
@@ -273,8 +357,7 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       }
       if (e.ctrlKey && e.shiftKey && e.code === "KeyV") {
         navigator.clipboard.readText().then((txt) => {
-          // paste() applies bracketed paste, so the shell doesn't run pasted newlines.
-          if (sessionId.current && !readOnly) t.paste(txt);
+          if (sessionId.current && !readOnly) guardedPaste(txt);
         });
         return false;
       }
@@ -292,10 +375,22 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       }
     });
     if (!readOnly) {
-      t.onData((d) => sessionId.current && api.termWrite(sessionId.current, d).catch(() => {}));
+      t.onData((d) => {
+        markCommand(d);
+        // Broadcast (M2.3): typing in a pane of the group goes to every pane in it.
+        const { tabId: me, groupTabId: g } = ctx.current;
+        const group = g && me ? useApp.getState().broadcast[g] : undefined;
+        if (group?.includes(me!)) {
+          for (const id of group) terminalWriter(id)?.(d);
+          return;
+        }
+        if (xfer.current) xfer.current.input(d);
+        else if (sessionId.current) api.termWrite(sessionId.current, d).catch(() => {});
+      });
       t.onBinary((d) => sessionId.current && api.termWriteB64(sessionId.current, binaryStringToB64(d)).catch(() => {}));
     }
     t.onResize(({ cols, rows }) => {
+      xfer.current?.resize(cols);
       if (sessionId.current && !readOnly) api.termResize(sessionId.current, cols, rows).catch(() => {});
     });
 
@@ -318,21 +413,93 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
 
   // Let other features paste into this terminal (only while it is connected).
   useEffect(() => {
+    if (!tabId) return;
+    setTerminalReader(tabId, () => (term.current ? bufferText(term.current) : ""));
+    return () => setTerminalReader(tabId, null);
+  }, [tabId]);
+
+  useEffect(() => {
     if (!tabId || readOnly) return;
-    setTerminalPaster(tabId, async (text) => {
-      const t = term.current;
-      if (!t || !sessionId.current) return;
-      const multi = /\r|\n/.test(text.replace(/\s+$/, ""));
-      // Without bracketed paste the shell would run each line at once.
-      if (multi && !t.modes.bracketedPasteMode) {
-        const ok = await ask("This shell runs each pasted line immediately. Paste anyway?", { title: "Paste several lines?", kind: "warning", okLabel: "Paste" });
-        if (!ok) return;
-      }
-      t.paste(multi ? text : text.replace(/[\r\n]+$/, ""));
-      t.focus();
+    setTerminalPaster(tabId, guardedPaste);
+    setTerminalWriter(tabId, (d) => {
+      markCommand(d);
+      if (sessionId.current) api.termWrite(sessionId.current, d).catch(() => {});
     });
-    return () => setTerminalPaster(tabId, null);
-  }, [tabId, readOnly]);
+    return () => {
+      setTerminalPaster(tabId, null);
+      setTerminalWriter(tabId, null);
+    };
+  }, [tabId, readOnly, guardedPaste, markCommand]);
+
+  // Background notices (M2.4): mark activity, and say when a command that ran
+  // 10 s or more finishes (the prompt is back), when a long burst of output
+  // goes quiet, or when the program rings the bell.
+  const burst = useRef<{ start: number; last: number; timer: ReturnType<typeof setTimeout> | null }>({ start: 0, last: 0, timer: null });
+  const promptBack = useCallback(() => {
+    const t = term.current;
+    return !!t && t.buffer.active.type === "normal" && atPrompt(t);
+  }, []);
+  const noteBackground = useCallback(() => {
+    const b = burst.current;
+    if (b.timer) clearTimeout(b.timer);
+    if (ctx.current.active) {
+      b.start = 0;
+      // Finished while you were watching: nothing to announce later.
+      b.timer = cmdStart.current ? setTimeout(() => promptBack() && (cmdStart.current = 0), 500) : null;
+      return;
+    }
+    cbRef.current.onActivity?.();
+    const now = Date.now();
+    if (!b.start || now - b.last > 3000) b.start = now;
+    b.last = now;
+    b.timer = setTimeout(() => {
+      const notices = !ctx.current.active && useApp.getState().settings?.backgroundNotices !== false;
+      const where = ctx.current.label ?? "a background terminal";
+      const ran = cmdStart.current ? Date.now() - cmdStart.current : 0;
+      if (ran && promptBack()) {
+        cmdStart.current = 0;
+        if (notices && ran >= 10_000) useApp.getState().toast(`Command finished in ${where} after ${formatSpan(ran)}`);
+      } else if (notices && b.last - b.start >= 10_000) {
+        useApp.getState().toast(`Output stopped in ${where}`);
+      }
+      b.start = 0;
+    }, 3000);
+  }, [promptBack]);
+  useEffect(() => () => void (burst.current.timer && clearTimeout(burst.current.timer)), []);
+  // Clickable addresses and archive names in the output (M2.6).
+  const [linkMenu, setLinkMenu] = useState<(OutputLink & { x: number; y: number }) | null>(null);
+  useEffect(() => {
+    const t = term.current;
+    if (!t) return;
+    const d = registerOutputLinks(t, (l, e) => setLinkMenu({ ...l, x: e.clientX, y: e.clientY }));
+    return () => d.dispose();
+  }, []);
+  useEffect(() => {
+    if (!linkMenu) return;
+    const close = () => setLinkMenu(null);
+    // Captured, so Escape closes the menu without also reaching the shell.
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    };
+    const t = setTimeout(() => window.addEventListener("mousedown", close), 0);
+    window.addEventListener("keydown", esc, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc, true);
+    };
+  }, [linkMenu]);
+  useEffect(() => {
+    const t = term.current;
+    if (!t) return;
+    const d = t.onBell(() => {
+      if (!ctx.current.active && useApp.getState().settings?.backgroundNotices !== false) useApp.getState().toast(`🔔 ${ctx.current.label ?? "A background terminal"} rang the bell`);
+    });
+    return () => d.dispose();
+  }, []);
 
   // Apply settings changes live.
   useEffect(() => {
@@ -364,11 +531,53 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
     }
     pending.current = 0;
     flowPaused.current = false;
+    // Output on its way to the screen counts for flow control; bytes taken
+    // by an in-terminal transfer never reach it, so they don't.
+    const screen = (data: string | Uint8Array) => {
+      const n = data.length;
+      pending.current += n;
+      t.write(data, () => {
+        pending.current -= n;
+        const id = sessionId.current ?? myId;
+        if (flowPaused.current && pending.current < FLOW_LOW && id) {
+          flowPaused.current = false;
+          api.termFlow(id, false).catch(() => {});
+        }
+      });
+      const id = sessionId.current ?? myId;
+      if (!flowPaused.current && pending.current > FLOW_HIGH && id) {
+        flowPaused.current = true;
+        api.termFlow(id, true).catch(() => {});
+      }
+    };
+    xfer.current = null;
+    const tx = cbRef.current.transfers;
+    if (tx && !readOnly) {
+      import("../lib/termTransfers").then(({ createTermTransfers }) => {
+        if (cancelled) return;
+        xfer.current = createTermTransfers({
+          write: screen,
+          send: async (d) => {
+            const id = sessionId.current ?? myId;
+            if (!id) return;
+            await (typeof d === "string" ? api.termWrite(id, d) : api.termWriteB64(id, bytesToB64(d)));
+          },
+          cols: t.cols,
+          zmodem: tx.zmodem,
+          notify: (text, kind) => useApp.getState().toast(text, kind),
+        });
+      });
+    }
     const ch = new Channel<TermEvent>();
     ch.onmessage = (ev) => {
       if (cancelled) return;
       if (ev.type === "data") {
+        noteBackground();
         const bytes = b64ToBytes(ev.data);
+        if (xfer.current) {
+          xfer.current.output(bytes);
+          return;
+        }
         pending.current += bytes.length;
         t.write(bytes, () => {
           pending.current -= bytes.length;
@@ -478,6 +687,7 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
       {toolbar}
       <div className="relative min-h-0 flex-1 bg-[var(--term-bg)]" style={{ ["--term-bg" as string]: THEMES[settings?.theme ?? "shellport-dark"]?.background }}>
         <div ref={host} className="absolute inset-0" />
+        {linkMenu && <LinkMenu link={linkMenu} remote={!!probeHostId} onDone={() => setLinkMenu(null)} paste={(x) => (term.current?.paste(x), term.current?.focus())} />}
         {status === "connecting" && (
           <div className="pointer-events-none absolute right-3 top-2 rounded bg-surface-3/90 px-2 py-1 text-xs text-fg-muted">Connecting…</div>
         )}
@@ -535,6 +745,42 @@ export function TerminalView({ open, active, readOnly, onTitle, onOpened, onClos
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function LinkMenu({ link, remote, onDone, paste }: { link: OutputLink & { x: number; y: number }; remote: boolean; onDone: () => void; paste: (text: string) => void }) {
+  const toast = useApp((s) => s.toast);
+  const serverLocal = link.kind === "address" && remote && isLoopback(link.text);
+  const hasPort = /:\d+$/.test(link.text);
+  const item = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-3";
+  const act = (f: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    f();
+    onDone();
+  };
+  return (
+    <div
+      className="fixed z-50 min-w-52 rounded-lg border border-border bg-surface-2 py-1 shadow-2xl"
+      style={{ left: Math.min(link.x, window.innerWidth - 260), top: Math.min(link.y + 6, window.innerHeight - 140) }}
+      onMouseDown={(e) => e.stopPropagation()}
+      role="menu"
+    >
+      <div className="truncate px-3 pb-1 pt-0.5 font-mono text-[11px] text-fg-subtle">{link.text}</div>
+      <button className={item} role="menuitem" onClick={act(() => navigator.clipboard.writeText(link.text).then(() => toast("Copied")))}>
+        <Copy size={13} /> Copy
+      </button>
+      {link.kind === "address" && hasPort && !serverLocal && (
+        <button className={item} role="menuitem" onClick={act(() => openExternal(`http://${link.text}`))}>
+          <ExternalLink size={13} /> Open http://{link.text}
+        </button>
+      )}
+      {serverLocal && hasPort && <div className="max-w-64 px-3 py-1.5 text-[11px] text-fg-subtle">This address is on the server. Add a port forward for this host to open it here.</div>}
+      {link.kind === "archive" && (
+        <button className={item} role="menuitem" onClick={act(() => paste(extractCommand(link.text)))}>
+          <PackageOpen size={13} /> Paste “{extractCommand(link.text)}”
+        </button>
+      )}
     </div>
   );
 }

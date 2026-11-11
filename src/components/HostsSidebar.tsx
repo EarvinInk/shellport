@@ -123,7 +123,11 @@ function HostRow({ h }: { h: Host }) {
         </div>
       </div>
       {/* Overlay the actions so they never squeeze the name (as on database rows). */}
-      <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface-3 pl-1 shadow-[-8px_0_8px_var(--color-surface-3)] group-hover:flex group-focus-within:flex">
+      <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface-3 pl-1 shadow-[-8px_0_8px_var(--color-surface-3)] group-hover:flex group-focus-within:flex"
+        // A double-click here is two clicks on one button: act once, and don't open a terminal from the row too.
+        onClickCapture={(e) => e.detail > 1 && e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <IconButton title="Open terminal" onClick={() => openSsh(h)}>
           <SquareTerminal size={14} />
         </IconButton>

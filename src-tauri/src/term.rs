@@ -239,10 +239,13 @@ pub async fn open_ssh(
     }
     let (id, mut paused) = register(&app, TermWriter::Ssh { chan: write });
     let id2 = id.clone();
+    // Opt-in per host: plain-text log of what this terminal showed.
+    let mut log = if conn.host.log_terminal && command.is_none() { open_log(&conn.host).await } else { None };
     tokio::spawn(async move {
         let conn = conn; // keep the connection alive while the shell is open
         let mut code = None;
         let mut closed = false;
+        let mut lines = crate::activity::LogLines::default();
         'outer: loop {
             wait_unpaused(&mut paused).await;
             let Some(first) = read.wait().await else { break };
@@ -260,6 +263,13 @@ pub async fn open_ssh(
                     break;
                 }
                 next = read.wait().now_or_never().flatten();
+            }
+            if let Some(f) = log.as_mut() {
+                use tokio::io::AsyncWriteExt;
+                let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                if f.write_all(&lines.feed(&buf, &stamp)).await.is_err() {
+                    log = None;
+                }
             }
             if !buf.is_empty() && out.send(data_event(&buf)).is_err() {
                 break 'outer;
@@ -279,6 +289,41 @@ pub async fn open_ssh(
         unregister(&app, &id2);
     });
     Ok(id)
+}
+
+/// Folder holding a host's terminal logs.
+pub fn log_dir(host: &crate::store::hosts::Host) -> std::path::PathBuf {
+    let safe: String = host.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' }).collect();
+    crate::paths::config_dir().join("logs").join(format!("{safe}-{}", host.id.chars().take(8).collect::<String>()))
+}
+
+/// A new private log file for one terminal session (None if it can't be created).
+async fn open_log(host: &crate::store::hosts::Host) -> Option<tokio::fs::File> {
+    let dir = log_dir(host);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("terminal log folder: {e}");
+        return None;
+    }
+    // One file per session: a new name if two sessions start in the same second.
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+    let mut path = dir.join(format!("{stamp}.log"));
+    for n in 2.. {
+        if !path.exists() {
+            break;
+        }
+        path = dir.join(format!("{stamp}-{n}.log"));
+    }
+    let mut o = tokio::fs::OpenOptions::new();
+    o.create_new(true).write(true);
+    #[cfg(unix)]
+    o.mode(0o600);
+    match o.open(&path).await {
+        Ok(f) => Some(f),
+        Err(e) => {
+            log::warn!("terminal log {}: {e}", path.display());
+            None
+        }
+    }
 }
 
 /// End the tmux session behind a closed tab (best effort).

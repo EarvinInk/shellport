@@ -25,6 +25,7 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - [Getting started](#getting-started)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Security and privacy](#security-and-privacy)
+- [Current limits](#current-limits)
 - [Uninstall](#uninstall)
 - [Build from source](#build-from-source)
 - [License](#license)
@@ -55,7 +56,11 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 <img src="docs/screenshots/sftp.png" alt="Dual-pane SFTP file manager with local files on the left and the server on the right" width="900">
 
 - **Dual-pane** local ↔ remote browser.
-- Upload and download whole folders with **progress and cancel**; asks before overwriting local files.
+- **One transfer queue** for every tab: upload, download and **copy between servers**, with speed, time left, **pause, resume and retry** (a dropped connection continues where it stopped). Asks before overwriting local files or files on another server.
+- **Edit remote files** in the built-in editor (with syntax highlighting), or **open them in your own editor** and every save is uploaded. If the file changed on the server meanwhile, Shellport asks before replacing it.
+- **Work as root** with sudo (the password is asked for each session and never stored), and **compress or extract** archives on the server.
+- **trzsz** (`trz` / `tsz`) in SSH terminals, and ZModem (`rz` / `sz`) where you turn it on for a host.
+- **Favourite folders** per host, also in the command palette.
 - **Drag and drop** files from your desktop file manager to upload.
 - Create folders, rename, change permissions (chmod), and delete on the server.
 
@@ -179,6 +184,17 @@ To update, download the newer `.deb` and run the same command.
 - Your data lives in `~/.config/shellport/` (`hosts.json`, `settings.json`, `vault.bin`), readable only by you (mode 0600).
 
 Found a security issue? Please report it privately via [GitHub security advisories](https://github.com/EarvinInk/shellport/security/advisories/new) rather than a public issue.
+
+## Current limits
+
+Files and transfers:
+
+- The built-in editor opens text files up to 5 MB; larger or binary files can be downloaded or opened in your own editor (up to 200 MB).
+- "Open in my editor" isn't available while working as root.
+- trzsz and ZModem transfers show their progress in the terminal, not in the transfer queue, and can't be paused. They run at a few MB/s; SFTP is much faster for big files.
+- ZModem (`rz` / `sz`) is off by default and hasn't yet been tested against lrzsz on a real server.
+- Uploads replace files of the same name on the server without asking (downloads and server-to-server copies ask first).
+- Extracting an archive always creates a new folder named after it, so an archive that already holds one top-level folder ends up one level deeper.
 
 ## Uninstall
 

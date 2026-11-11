@@ -89,6 +89,16 @@ pub struct Host {
     /// Kept in sync with this `Host` entry of `~/.ssh/config`.
     #[serde(default)]
     pub ssh_config_alias: Option<String>,
+    /// Save each terminal session's output (plain text) to a log file.
+    #[serde(default)]
+    pub log_terminal: bool,
+    /// Folders on this host saved as favourites in the file browser.
+    #[serde(default)]
+    pub favorite_paths: Vec<String>,
+    /// Watch terminal output for ZModem (`rz`/`sz`) transfers. Off by default:
+    /// stray ZModem bytes in output could otherwise pop up a file dialog.
+    #[serde(default)]
+    pub zmodem: bool,
 }
 
 fn default_port() -> u16 {

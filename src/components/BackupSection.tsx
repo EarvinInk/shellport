@@ -7,12 +7,13 @@ import { Button, Checkbox, Field, Input } from "./ui";
 
 /** Settings section: export everything to one encrypted file, or restore from one. */
 export function BackupSection() {
-  const { vault, toast, error, setUnlockPrompt, refreshHosts, refreshDbs, refreshSecrets, loadSettings } = useApp();
+  const { vault, toast, error, setUnlockPrompt, refreshHosts, refreshDbs, refreshSecrets, refreshLibrary, loadSettings } = useApp();
 
   // Export
   const [pass, setPass] = useState("");
   const [pass2, setPass2] = useState("");
   const [withSecrets, setWithSecrets] = useState(false);
+  const [withHistory, setWithHistory] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportProblem =
     pass.length < 8 ? "Use a passphrase of at least 8 characters" : pass !== pass2 ? "The passphrases don't match" : withSecrets && !vault.unlocked ? "Unlock the vault to include secrets" : null;
@@ -20,7 +21,7 @@ export function BackupSection() {
   const doExport = async () => {
     setExporting(true);
     try {
-      const path = await api.backupExport(pass, withSecrets);
+      const path = await api.backupExport(pass, withSecrets, withHistory);
       if (path) {
         toast(`Backup saved to ${path}`, "success");
         setPass("");
@@ -67,10 +68,13 @@ export function BackupSection() {
     setRestoreErr(null);
     try {
       const r = await api.backupImport(file, rpass, replaceSettings);
-      await Promise.all([refreshHosts(), refreshDbs(), refreshSecrets(), r.settings ? loadSettings() : Promise.resolve()]);
+      await Promise.all([refreshHosts(), refreshDbs(), refreshSecrets(), refreshLibrary(), r.settings ? loadSettings() : Promise.resolve()]);
       toast(
         `Restored ${r.hosts} host${r.hosts === 1 ? "" : "s"}, ${r.databases} database${r.databases === 1 ? "" : "s"}` +
           (r.secrets ? `, ${r.secrets} secret${r.secrets === 1 ? "" : "s"}` : "") +
+          (r.commands ? `, ${r.commands} command${r.commands === 1 ? "" : "s"}` : "") +
+          (r.workspaces ? `, ${r.workspaces} workspace${r.workspaces === 1 ? "" : "s"}` : "") +
+          (r.history ? `, ${r.history} history entr${r.history === 1 ? "y" : "ies"}` : "") +
           (r.settings ? " and settings" : ""),
         "success",
       );
@@ -109,7 +113,9 @@ export function BackupSection() {
             <Input type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} autoComplete="new-password" />
           </Field>
         </div>
+        <p className="text-xs text-fg-subtle">Always includes hosts, database connections, saved commands, workspaces and settings.</p>
         <Checkbox label="Include vault secrets (passwords and keys)" checked={withSecrets} onChange={setWithSecrets} />
+        <Checkbox label="Include activity & history (queries, runs, transfers)" checked={withHistory} onChange={setWithHistory} />
         {withSecrets && !vault.unlocked && (
           <div className="flex items-center gap-2 text-xs text-warn">
             <Lock size={12} /> The vault is locked.
@@ -168,6 +174,10 @@ export function BackupSection() {
                 <li>
                   Database connections: {summary.databases.new} new of {summary.databases.total}
                 </li>
+                <li>
+                  Saved commands: {summary.commands}, workspaces: {summary.workspaces}
+                </li>
+                {summary.history > 0 && <li>History entries: {summary.history}</li>}
                 <li>{summary.secrets ? `Vault secrets: ${summary.secrets.new} new of ${summary.secrets.total}` : "No vault secrets in this backup"}</li>
               </ul>
               <p className="mt-2">Items you already have are kept as they are; only new ones are added.</p>

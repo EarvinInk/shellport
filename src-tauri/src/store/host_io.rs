@@ -125,6 +125,9 @@ fn blank_host(name: String) -> Host {
         production: false,
         notes: None,
         ssh_config_alias: None,
+        log_terminal: false,
+        favorite_paths: Vec::new(),
+        zmodem: false,
     }
 }
 

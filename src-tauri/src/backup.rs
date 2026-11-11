@@ -33,6 +33,12 @@ pub struct Backup {
     /// Present only when the user chose to include vault secrets.
     #[serde(default)]
     pub secrets: Option<Vec<Secret>>,
+    /// Saved commands and workspaces.
+    #[serde(default)]
+    pub library: crate::store::library::Library,
+    /// Activity & history, only when the user chose to include it.
+    #[serde(default)]
+    pub activity: Option<Vec<crate::activity::ActivityEntry>>,
 }
 
 fn now() -> u64 {
@@ -40,7 +46,7 @@ fn now() -> u64 {
 }
 
 /// Collect everything to back up.
-pub fn build(state: &AppState, include_secrets: bool) -> Result<Backup> {
+pub fn build(state: &AppState, include_secrets: bool, include_history: bool) -> Result<Backup> {
     let secrets = if include_secrets {
         let v = state.vault.lock();
         if !v.is_unlocked() {
@@ -58,6 +64,8 @@ pub fn build(state: &AppState, include_secrets: bool) -> Result<Backup> {
         databases: state.dbs.lock().list(),
         settings: state.settings.lock().clone(),
         secrets,
+        library: state.library.lock().get(),
+        activity: include_history.then(|| state.activity.all()),
     })
 }
 
@@ -98,6 +106,10 @@ pub struct Summary {
     pub app: String,
     pub hosts: Counts,
     pub databases: Counts,
+    pub commands: usize,
+    pub workspaces: usize,
+    /// History entries in the backup (0 when not included).
+    pub history: usize,
     /// None when the backup has no secrets.
     pub secrets: Option<Counts>,
     pub vault_exists: bool,
@@ -113,6 +125,9 @@ pub fn summarize(state: &AppState, b: &Backup) -> Summary {
         app: b.app.clone(),
         hosts: Counts { total: b.hosts.len(), new: b.hosts.iter().filter(|h| !hosts.has(&h.id)).count() },
         databases: Counts { total: b.databases.len(), new: b.databases.iter().filter(|d| !dbs.has(&d.id)).count() },
+        commands: b.library.commands.len(),
+        workspaces: b.library.workspaces.len(),
+        history: b.activity.as_ref().map_or(0, Vec::len),
         secrets: b.secrets.as_ref().map(|s| Counts {
             total: s.len(),
             // Unknown while locked: count them all as new.
@@ -129,6 +144,9 @@ pub struct Restored {
     pub hosts: usize,
     pub databases: usize,
     pub secrets: usize,
+    pub commands: usize,
+    pub workspaces: usize,
+    pub history: usize,
     pub settings: bool,
 }
 
@@ -147,6 +165,10 @@ pub fn apply(state: &AppState, b: Backup, replace_settings: bool, allowed_shell:
     }
     r.hosts = state.hosts.lock().merge(b.hosts)?;
     r.databases = state.dbs.lock().merge(b.databases)?;
+    (r.commands, r.workspaces) = state.library.lock().merge(b.library)?;
+    if let Some(a) = b.activity {
+        r.history = state.activity.merge(a);
+    }
     if replace_settings {
         let mut s = b.settings;
         // The shell setting must still be a login shell on this machine.
@@ -184,6 +206,8 @@ mod tests {
             databases: vec![],
             settings: Settings::default(),
             secrets: secrets.then(Vec::new),
+            library: Default::default(),
+            activity: None,
         }
     }
 

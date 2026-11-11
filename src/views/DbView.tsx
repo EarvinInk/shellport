@@ -10,6 +10,7 @@ import {
   Eye,
   Folder,
   FunctionSquare,
+  History,
   Layers,
   Loader2,
   Lock,
@@ -28,10 +29,12 @@ import {
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, IconButton, Modal, ProdBadge, Select, TextArea } from "../components/ui";
+import { Editor, type EditorHandle } from "../components/Editor";
 import { DB_ENGINES } from "../lib/dbEngines";
 import { api, errMsg } from "../lib/ipc";
-import type { Cell, DbConnected, QueryOutput, QueryRisk, SchemaNode, StatementResult, TxState } from "../lib/types";
+import type { ActivityEntry, Cell, DbConnected, QueryOutput, QueryRisk, SchemaNode, StatementResult, TxState } from "../lib/types";
 import { setCloseGuard, useApp } from "../store";
+import { when } from "./ActivityView";
 
 const ROW_LIMITS = [100, 1000, 5000, 20000];
 
@@ -114,7 +117,7 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
   const [treeKey, setTreeKey] = useState(0);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<EditorHandle>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // Layout: tree width/visibility and editor height, remembered for all DB tabs.
@@ -233,8 +236,7 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
 
   const run = async (text?: string, confirmed = false) => {
     if (!conn || running) return;
-    const el = editorRef.current;
-    const selected = el && el.selectionStart !== el.selectionEnd ? el.value.slice(el.selectionStart, el.selectionEnd) : "";
+    const selected = editorRef.current?.selection() ?? "";
     const toRun = (text ?? (selected || sql)).trim();
     if (!toRun) return;
     setRunning(true);
@@ -290,14 +292,7 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
 
   /** Insert text at the editor's cursor (replacing any selection). */
   const insert = (text: string) => {
-    const el = editorRef.current;
-    const a = el?.selectionStart ?? sql.length;
-    const b = el?.selectionEnd ?? sql.length;
-    setSql(sql.slice(0, a) + text + sql.slice(b));
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(a + text.length, a + text.length);
-    });
+    editorRef.current?.insert(text);
   };
 
   const treeCtx = useMemo(
@@ -317,7 +312,6 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
   if (!profile) return <Empty title="Database connection not found">It may have been deleted.</Empty>;
 
   const current = output?.results[resultIdx];
-  const lineCount = sql.split("\n").length;
 
   return (
     <div className="flex h-full min-h-0">
@@ -404,6 +398,7 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
           <Button size="sm" onClick={cancel} disabled={!running || !conn} title="Cancel the running query">
             <Square size={12} /> Cancel
           </Button>
+          <QueryHistory dbId={dbId} onPick={(q) => (setSql(q), editorRef.current?.focus())} />
           <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-fg-muted">
             Row limit
             <Select className="h-7 w-24 px-2 text-xs" value={rowLimit} onChange={(e) => setRowLimit(Number(e.target.value))}>
@@ -457,35 +452,16 @@ export function DbView({ tabId, dbId, active }: { tabId: string; dbId: string; a
           />
         ) : (
           <>
-            {/* Editor with line numbers; no wrapping, like a code editor. */}
+            {/* The shared code editor (M3.2): SQL highlighting, line numbers, search. */}
             <div className="flex shrink-0 bg-surface-0" style={{ height: editorH }}>
-              <Gutter lines={lineCount} editorRef={editorRef} />
-              <textarea
+              <Editor
                 ref={editorRef}
                 value={sql}
-                wrap="off"
-                onChange={(e) => setSql(e.target.value)}
-                onScroll={(e) => {
-                  const g = e.currentTarget.previousElementSibling as HTMLElement | null;
-                  if (g) g.scrollTop = e.currentTarget.scrollTop;
-                }}
-                onKeyDown={(e) => {
-                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    run();
-                  }
-                  if (e.key === "Tab" && !e.shiftKey) {
-                    e.preventDefault();
-                    const el = e.currentTarget;
-                    const { selectionStart: a, selectionEnd: b } = el;
-                    setSql(sql.slice(0, a) + "  " + sql.slice(b));
-                    requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
-                  }
-                }}
-                spellCheck={false}
-                aria-label="SQL editor"
+                onChange={setSql}
+                language="sql"
+                onRun={() => run()}
                 placeholder="Write SQL. Ctrl+Enter runs it (or just the selection)."
-                className="min-w-0 flex-1 resize-none overflow-auto whitespace-pre bg-surface-0 py-3 pl-2 pr-3 font-mono text-sm leading-5 text-fg outline-none placeholder:text-fg-subtle"
+                className="min-w-0 flex-1"
               />
             </div>
             <div
@@ -627,24 +603,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
   return <kbd className="mx-0.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-fg-muted">{children}</kbd>;
 }
 
-function Gutter({ lines, editorRef }: { lines: number; editorRef: React.RefObject<HTMLTextAreaElement | null> }) {
-  return (
-    <div
-      aria-hidden
-      className="w-10 shrink-0 select-none overflow-hidden border-r border-border/60 bg-surface-1 py-3 pr-2 text-right font-mono text-xs leading-5 text-fg-subtle"
-      onMouseDown={(e) => {
-        e.preventDefault();
-        editorRef.current?.focus();
-      }}
-    >
-      {Array.from({ length: lines }, (_, i) => (
-        <div key={i}>{i + 1}</div>
-      ))}
-      {/* Room for the textarea's horizontal scrollbar, so numbers stay aligned at the bottom. */}
-      <div className="h-6" />
-    </div>
-  );
-}
 
 function ConnectionError({
   name,
@@ -1147,5 +1105,61 @@ function TreeNode({ n, depth }: { n: SchemaNode; depth: number }) {
       </div>
       {open && <TreeLevel path={n.path} depth={depth + 1} />}
     </>
+  );
+}
+
+/** Recent queries on this database (from Activity), newest first; picking one puts it in the editor. */
+function QueryHistory({ dbId, onPick }: { dbId: string; onPick: (sql: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<ActivityEntry[]>([]);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    api
+      .activityList({ dbId, kind: "query", limit: 30 })
+      .then((list) => {
+        // One row per distinct statement, keeping the newest.
+        const seen = new Set<string>();
+        setItems(list.filter((e) => !seen.has(e.detail.trim()) && (seen.add(e.detail.trim()), true)));
+      })
+      .catch(() => setItems([]));
+    const close = (e: MouseEvent) => boxRef.current && !boxRef.current.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open, dbId]);
+  return (
+    <div ref={boxRef} className="relative">
+      <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} title="Recent queries on this database" aria-expanded={open}>
+        <History size={13} /> History
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-[34rem] overflow-y-auto rounded-lg border border-border bg-surface-2 py-1 shadow-2xl">
+          {items.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-fg-subtle">No queries yet. Queries you run here are kept on this machine.</div>
+          ) : (
+            items.map((e) => (
+              <button
+                key={e.id}
+                className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-surface-3"
+                onClick={() => {
+                  onPick(e.detail);
+                  setOpen(false);
+                }}
+                title={e.detail}
+              >
+                <span className={clsx("mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full", e.ok ? "bg-ok" : "bg-danger")} />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">{e.detail.replace(/\s+/g, " ")}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-fg-subtle">{when(e.at)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }

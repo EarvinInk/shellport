@@ -69,7 +69,9 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
     <select
       {...props}
       className={clsx(
-        "h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-fg outline-none focus:border-accent",
+        "h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-fg outline-none focus:border-accent",
+        // Full width unless the caller sets one (class order can't decide between two widths).
+        !/(^|\s)w-/.test(className ?? "") && "w-full",
         className,
       )}
     >

@@ -105,7 +105,10 @@ function DbRow({ d }: { d: DbProfile }) {
         </div>
       </div>
       {/* Overlay the actions so they never squeeze the name. */}
-      <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface-3 pl-1 shadow-[-8px_0_8px_var(--color-surface-3)] group-hover:flex group-focus-within:flex">
+      <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface-3 pl-1 shadow-[-8px_0_8px_var(--color-surface-3)] group-hover:flex group-focus-within:flex"
+        onClickCapture={(e) => e.detail > 1 && e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <IconButton title="Open" onClick={() => openDb(d)}>
           <Play size={14} />
         </IconButton>

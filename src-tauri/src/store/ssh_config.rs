@@ -268,6 +268,9 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
             production: false,
             notes: None,
             ssh_config_alias: Some(e.alias.clone()),
+            log_terminal: false,
+            favorite_paths: Vec::new(),
+            zmodem: false,
         })
         .collect();
     // Resolve ProxyJump (first hop only; `user@host:port` forms match by alias).

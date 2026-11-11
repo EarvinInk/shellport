@@ -105,13 +105,13 @@ pub async fn close(state: &AppState, session_id: &str) {
 }
 
 /// A live session, or a `connection lost` error the UI offers to reconnect.
-pub async fn get(state: &AppState, session_id: &str) -> Result<(Arc<dyn DbSession>, crate::store::databases::Safety)> {
+pub async fn get(state: &AppState, session_id: &str) -> Result<(Arc<dyn DbSession>, crate::store::databases::Safety, String)> {
     let s = state
         .db_sessions
         .lock()
         .await
         .get(session_id)
-        .map(|o| (o.session.clone(), o.safety))
+        .map(|o| (o.session.clone(), o.safety, o.profile_id.clone()))
         .ok_or_else(|| anyhow!("{}: the session was closed", super::CONNECTION_LOST))?;
     if s.0.is_closed() {
         return Err(anyhow!("{}: the server closed the connection or the network dropped", super::CONNECTION_LOST));

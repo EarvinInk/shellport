@@ -5,7 +5,8 @@ import { api } from "../lib/ipc";
 import { pasteToHost } from "../lib/terminalActions";
 import { useApp } from "../store";
 import { Markdown } from "./Markdown";
-import { Button, Modal, TextArea } from "./ui";
+import { Editor } from "./Editor";
+import { Button, Modal } from "./ui";
 
 const TEMPLATE = `## About this server
 
@@ -77,14 +78,15 @@ export function NotesDialog() {
       }
     >
       {editing ? (
-        <TextArea
+        <Editor
           autoFocus
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => (e.ctrlKey || e.metaKey) && e.key === "s" && (e.preventDefault(), dirty && save())}
+          onChange={setText}
+          onSave={() => dirty && save()}
+          language="markdown"
+          wrap
           placeholder={TEMPLATE}
-          rows={18}
-          className="text-xs leading-5"
+          className="h-96 overflow-hidden rounded-md border border-border"
         />
       ) : (
         <Markdown

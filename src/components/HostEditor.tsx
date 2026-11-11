@@ -346,6 +346,18 @@ export function HostEditor() {
               <span className="pl-6 text-xs text-fg-subtle">Programs keep running if the connection drops, and reconnecting picks up where you left off. Needs tmux on the server.</span>
             </div>
           </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Detect ZModem transfers (rz / sz)" checked={!!h.zmodem} onChange={(v) => set("zmodem", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Running sz or rz in this host's terminal opens a file dialog. trzsz (trz / tsz) always works and is faster; turn this on only if you use lrzsz.
+            </span>
+          </div>
+          <div className="mt-4 flex flex-col gap-1">
+            <Checkbox label="Save terminal output to a log file" checked={!!h.logTerminal} onChange={(v) => set("logTerminal", v)} />
+            <span className="pl-6 text-xs text-fg-subtle">
+              Plain text, one file per session, kept only on this computer{h.id ? <> in <LogsDir hostId={h.id} /></> : ""}. Anything shown on screen is saved, passwords you type are not (they aren't echoed).
+            </span>
+          </div>
           <Field label="Remote Docker socket" className="mt-4">
             <Input value={h.dockerSocket ?? ""} onChange={(e) => set("dockerSocket", e.target.value || null)} placeholder="/var/run/docker.sock" />
           </Field>
@@ -405,4 +417,12 @@ function Section({ title, action, children }: { title: string; action?: React.Re
       {children}
     </section>
   );
+}
+
+function LogsDir({ hostId }: { hostId: string }) {
+  const [dir, setDir] = useState("");
+  useEffect(() => {
+    api.hostLogsDir(hostId).then(setDir).catch(() => {});
+  }, [hostId]);
+  return <code className="break-all rounded bg-surface-3 px-1">{dir || "…"}</code>;
 }
