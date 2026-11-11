@@ -1,53 +1,55 @@
 ---
+import { u } from '../lib/url';
 import Logo from './Logo.astro';
 import Icon from './Icon.astro';
-import { site } from '../site.config';
+import { site, hasDonate } from '../site.config';
 const year = new Date(site.releaseDate).getFullYear();
 ---
 <footer class="footer">
   <div class="container">
     <div class="top">
       <div class="about">
-        <a href="/" aria-label="Shellport home"><Logo /></a>
+        <a href={u('/')} aria-label="Shellport home"><Logo /></a>
         <p>{site.tagline} Free and open source, with no accounts and no telemetry.</p>
         <div class="social">
           <a href={site.repo} aria-label="GitHub" rel="noopener"><Icon name="github" size={18} /></a>
-          <a href={`mailto:${site.author.email}`} aria-label="Email"><Icon name="mail" size={18} /></a>
-          <a href={site.author.url} aria-label={site.author.domainLabel}><Icon name="globe" size={18} /></a>
+          {site.author.email && <a href={`mailto:${site.author.email}`} aria-label="Email"><Icon name="mail" size={18} /></a>}
         </div>
       </div>
 
       <div class="col">
         <h3>Product</h3>
-        <a href="/#features">Features</a>
-        <a href="/download/">Download</a>
-        <a href="/docs/">Documentation</a>
+        <a href={u('/#features')}>Features</a>
+        <a href={u('/download/')}>Download</a>
+        <a href={u('/docs/')}>Documentation</a>
         <a href={site.links.changelog} rel="noopener">Changelog</a>
         <a href={site.repo} rel="noopener">Source code</a>
       </div>
 
       <div class="col">
         <h3>Support</h3>
-        <a href="/contact/">Contact</a>
-        <a href="/donate/">Donate</a>
-        <a href="/docs/troubleshooting/">Troubleshooting</a>
-        <a href="/docs/security/">Security</a>
+        <a href={u('/contact/')}>Contact</a>
+        {hasDonate && <a href={u('/donate/')}>Donate</a>}
+        <a href={u('/docs/troubleshooting/')}>Troubleshooting</a>
+        <a href={u('/docs/security/')}>Security</a>
         <a href={site.links.issues} rel="noopener">Report an issue</a>
       </div>
 
+      {site.otherProjects.length > 0 && (
       <div class="col more">
-        <h3>More from {site.author.name}</h3>
-        <a href={site.author.url} class="home-link">
-          <span class="dot"><Icon name="globe" size={15} /></span>
-          <span><strong>{site.author.domainLabel}</strong><small>Personal site &amp; blog</small></span>
-        </a>
-        {site.otherProjects.map((p) => (
-          <a href={p.url} class="project">
-            <span class="dot">{p.name.charAt(0)}</span>
-            <span><strong>{p.name}</strong><small>{p.description}</small></span>
+          <h3>More from {site.author.name}</h3>
+          <a href={site.author.url} class="home-link">
+            <span class="dot"><Icon name="globe" size={15} /></span>
+            <span><strong>{site.author.domainLabel}</strong><small>Personal site &amp; blog</small></span>
           </a>
-        ))}
-      </div>
+          {site.otherProjects.map((p) => (
+            <a href={p.url} class="project">
+              <span class="dot">{p.name.charAt(0)}</span>
+              <span><strong>{p.name}</strong><small>{p.description}</small></span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
 
     <div class="bottom">

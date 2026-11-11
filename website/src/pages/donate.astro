@@ -2,9 +2,13 @@
 import Base from '../layouts/Base.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Icon, { type IconName } from '../components/Icon.astro';
-import { site } from '../site.config';
+import { site, hasDonate } from '../site.config';
+import { u } from '../lib/url';
 
-const platforms: { icon: IconName; name: string; kind: string; body: string; cta: string; href: string; color: string; featured?: boolean }[] = [
+// No donate links set yet: send visitors home instead of showing empty buttons.
+if (!hasDonate) return Astro.redirect(u('/'));
+
+const allPlatforms: { icon: IconName; name: string; kind: string; body: string; cta: string; href: string; color: string; featured?: boolean }[] = [
   {
     icon: 'github', name: 'GitHub Sponsors', kind: 'Monthly or one-time',
     body: 'Sponsor directly on GitHub. Recurring support helps plan new features and keep up with releases.',
@@ -22,6 +26,8 @@ const platforms: { icon: IconName; name: string; kind: string; body: string; cta
   },
 ];
 
+const platforms = allPlatforms.filter((p) => p.href);
+
 const funds: { icon: IconName; title: string; body: string }[] = [
   { icon: 'zap', title: 'New features', body: 'Time to build what users ask for most.' },
   { icon: 'bug', title: 'Fixes & testing', body: 'Testing on more distributions and setups.' },
@@ -31,7 +37,7 @@ const funds: { icon: IconName; title: string; body: string }[] = [
 
 const otherWays: { icon: IconName; title: string; body: string; href: string }[] = [
   { icon: 'star', title: 'Star the repo', body: 'Helps others discover Shellport.', href: site.repo },
-  { icon: 'share', title: 'Tell a friend', body: 'Share it with your team or community.', href: '/' },
+  { icon: 'share', title: 'Tell a friend', body: 'Share it with your team or community.', href: u('/') },
   { icon: 'bug', title: 'Report bugs', body: 'Good bug reports are gold.', href: site.links.newBug },
   { icon: 'code', title: 'Contribute', body: 'Code and docs pull requests welcome.', href: site.repo },
 ];

@@ -1,4 +1,5 @@
 ---
+import { u } from '../lib/url';
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
 ---
@@ -16,8 +17,8 @@ import Icon from '../components/Icon.astro';
       <h1>404: page not found</h1>
       <p>The page you’re looking for has moved or never existed.</p>
       <div class="ctas">
-        <a class="btn btn-primary btn-lg" href="/">Back to home</a>
-        <a class="btn btn-ghost btn-lg" href="/docs/"><Icon name="book" />Documentation</a>
+        <a class="btn btn-primary btn-lg" href={u('/')}>Back to home</a>
+        <a class="btn btn-ghost btn-lg" href={u('/docs/')}><Icon name="book" />Documentation</a>
       </div>
     </div>
   </section>

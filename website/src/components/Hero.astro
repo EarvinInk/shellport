@@ -1,4 +1,5 @@
 ---
+import { u } from '../lib/url';
 import Icon from './Icon.astro';
 import AppWindow from './AppWindow.astro';
 import { site } from '../site.config';
@@ -22,7 +23,7 @@ import docker from '../assets/screenshots/docker.png';
       encrypted secrets vault together in a single fast desktop app for Linux.
     </p>
     <div class="ctas rise" style="--d:180ms">
-      <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download for Linux</a>
+      <a class="btn btn-primary btn-lg" href={u('/download/')}><Icon name="download" />Download for Linux</a>
       <a class="btn btn-ghost btn-lg" href={site.repo} rel="noopener"><Icon name="github" />Star on GitHub</a>
     </div>
     <ul class="trust rise" style="--d:240ms" aria-label="Highlights">

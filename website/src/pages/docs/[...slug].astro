@@ -1,4 +1,5 @@
 ---
+import { u } from '../../lib/url';
 import { getCollection, render } from 'astro:content';
 import Base from '../../layouts/Base.astro';
 import Icon from '../../components/Icon.astro';
@@ -18,7 +19,7 @@ const toc = headings.filter((h) => h.depth === 2);
 
 const all = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
 const sections = ['Getting started', 'Features', 'Reference'] as const;
-const href = (id: string) => (id === 'introduction' ? '/docs/' : `/docs/${id}/`);
+const href = (id: string) => u(id === 'introduction' ? '/docs/' : `/docs/${id}/`);
 const editUrl = `${site.repo}/edit/main/website/src/content/docs/${entry.id}.md`;
 ---
 <Base title={entry.data.title} description={entry.data.description}>
@@ -43,14 +44,14 @@ const editUrl = `${site.repo}/edit/main/website/src/content/docs/${entry.id}.md`
         <div class="side-help">
           <strong>Need help?</strong>
           <span>Can’t find what you’re looking for?</span>
-          <a href="/contact/">Contact support <Icon name="arrowRight" size={14} /></a>
+          <a href={u('/contact/')}>Contact support <Icon name="arrowRight" size={14} /></a>
         </div>
       </nav>
     </aside>
 
     <article class="content">
       <nav class="crumbs" aria-label="Breadcrumb">
-        <a href="/docs/">Docs</a><Icon name="chevronRight" size={14} /><span>{entry.data.section}</span>
+        <a href={u('/docs/')}>Docs</a><Icon name="chevronRight" size={14} /><span>{entry.data.section}</span>
       </nav>
       <h1>{entry.data.title}</h1>
       <p class="desc">{entry.data.description}</p>
@@ -77,7 +78,7 @@ const editUrl = `${site.repo}/edit/main/website/src/content/docs/${entry.id}.md`
           <ul>{toc.map((h) => <li><a href={`#${h.slug}`} data-slug={h.slug}>{h.text}</a></li>)}</ul>
         </>
       )}
-      <a class="toc-cta" href="/download/">
+      <a class="toc-cta" href={u('/download/')}>
         <Icon name="download" size={16} />
         <span><strong>Get Shellport {site.version}</strong><small>.deb · AppImage</small></span>
       </a>

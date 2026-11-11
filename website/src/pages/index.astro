@@ -1,11 +1,12 @@
 ---
+import { u } from '../lib/url';
 import Base from '../layouts/Base.astro';
 import Hero from '../components/Hero.astro';
 import Showcase from '../components/Showcase.astro';
 import Icon, { type IconName } from '../components/Icon.astro';
 import AppWindow from '../components/AppWindow.astro';
 import CodeBlock from '../components/CodeBlock.astro';
-import { site } from '../site.config';
+import { site, hasDonate } from '../site.config';
 import hostkey from '../assets/screenshots/hostkey.png';
 
 const features: { icon: IconName; title: string; body: string }[] = [
@@ -80,7 +81,7 @@ const stats = [
             </div>
           ))}
         </div>
-        <a class="btn btn-ghost" href="/docs/security/">How Shellport protects you <Icon name="arrowRight" /></a>
+        <a class="btn btn-ghost" href={u('/docs/security/')}>How Shellport protects you <Icon name="arrowRight" /></a>
       </div>
       <div class="sec-shot reveal">
         <AppWindow src={hostkey} alt="Unknown host key prompt showing the server's SHA256 fingerprint" title="Shellport — Verify host" />
@@ -97,8 +98,8 @@ const stats = [
           <h2>Install with one command</h2>
           <p class="muted">Download the .deb for Ubuntu, Debian and Mint, or the AppImage for any distribution. apt pulls in everything else.</p>
           <div class="install-ctas">
-            <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download v{site.version}</a>
-            <a class="btn btn-text" href="/docs/getting-started/">Read the quick start <Icon name="arrowRight" /></a>
+            <a class="btn btn-primary btn-lg" href={u('/download/')}><Icon name="download" />Download v{site.version}</a>
+            <a class="btn btn-text" href={u('/docs/getting-started/')}>Read the quick start <Icon name="arrowRight" /></a>
           </div>
         </div>
         <div class="install-term">
@@ -110,8 +111,9 @@ const stats = [
   </section>
 
   <section class="section support">
-    <div class="container support-grid">
-      <a class="card support-card donate reveal" href="/donate/">
+    <div class:list={["container", "support-grid", { single: !hasDonate }]}>
+      {hasDonate && (
+      <a class="card support-card donate reveal" href={u('/donate/')}>
         <div class="icon-badge heart"><Icon name="heart" /></div>
         <h2>Support Shellport</h2>
         <p class="muted">Shellport is free and built in spare time. If it saves you time, a small donation keeps updates coming.</p>
@@ -122,14 +124,15 @@ const stats = [
         </div>
         <span class="go">Become a supporter <Icon name="arrowRight" size={16} /></span>
       </a>
-      <a class="card support-card reveal" href="/contact/" style="transition-delay:80ms">
+      )}
+      <a class="card support-card reveal" href={u('/contact/')} style="transition-delay:80ms">
         <div class="icon-badge"><Icon name="message" /></div>
         <h2>Questions or ideas?</h2>
-        <p class="muted">Report a bug, suggest a feature, ask the community, or get in touch directly. We read everything.</p>
+        <p class="muted">Report a bug, suggest a feature, or report a security issue privately. We read everything.</p>
         <div class="platforms">
           <span><Icon name="bug" size={16} />Bugs</span>
           <span><Icon name="bulb" size={16} />Ideas</span>
-          <span><Icon name="mail" size={16} />Email</span>
+          {site.author.email ? <span><Icon name="mail" size={16} />Email</span> : <span><Icon name="shieldAlert" size={16} />Security</span>}
         </div>
         <span class="go">Get in touch <Icon name="arrowRight" size={16} /></span>
       </a>
@@ -195,6 +198,7 @@ const stats = [
 
   .support { padding-top: 0; }
   .support-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .support-grid.single { grid-template-columns: 1fr; max-width: 640px; }
   .support-card { padding: 36px; display: flex; flex-direction: column; }
   .support-card h2 { font-size: 26px; margin: 22px 0 10px; }
   .support-card > p { font-size: 16px; }

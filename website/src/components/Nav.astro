@@ -1,24 +1,25 @@
 ---
+import { u } from '../lib/url';
 import Logo from './Logo.astro';
 import Icon from './Icon.astro';
-import { site } from '../site.config';
+import { site, hasDonate } from '../site.config';
 
 const path = Astro.url.pathname;
 const links = [
   { href: '/#features', label: 'Features', match: '/#' },
   { href: '/docs/', label: 'Docs', match: '/docs' },
   { href: '/download/', label: 'Download', match: '/download' },
-  { href: '/donate/', label: 'Donate', match: '/donate' },
+  ...(hasDonate ? [{ href: '/donate/', label: 'Donate', match: '/donate' }] : []),
   { href: '/contact/', label: 'Contact', match: '/contact' },
 ];
-const isActive = (m: string) => m !== '/#' && path.startsWith(m);
+const isActive = (m: string) => m !== '/#' && path.startsWith(u(m));
 ---
 <header class="nav" id="nav">
   <div class="inner container">
-    <a href="/" class="brand" aria-label="Shellport home"><Logo /></a>
+    <a href={u('/')} class="brand" aria-label="Shellport home"><Logo /></a>
 
     <nav class="links" aria-label="Main">
-      {links.map((l) => <a href={l.href} class:list={{ active: isActive(l.match) }}>{l.label}</a>)}
+      {links.map((l) => <a href={u(l.href)} class:list={{ active: isActive(l.match) }}>{l.label}</a>)}
     </nav>
 
     <div class="actions">
@@ -28,7 +29,7 @@ const isActive = (m: string) => m !== '/#' && path.startsWith(m);
       <button class="icon-btn theme-toggle" type="button" aria-label="Toggle colour theme">
         <Icon name="sun" size={18} class="i-sun" /><Icon name="moon" size={18} class="i-moon" />
       </button>
-      <a class="btn btn-primary btn-sm cta" href="/download/"><Icon name="download" />Download</a>
+      <a class="btn btn-primary btn-sm cta" href={u('/download/')}><Icon name="download" />Download</a>
       <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
         <Icon name="menu" size={20} class="i-menu" /><Icon name="x" size={20} class="i-x" />
       </button>
@@ -37,9 +38,9 @@ const isActive = (m: string) => m !== '/#' && path.startsWith(m);
 
   <div class="mobile" id="mobile-menu" hidden>
     <nav class="container" aria-label="Mobile">
-      {links.map((l) => <a href={l.href}>{l.label}<Icon name="chevronRight" size={18} /></a>)}
+      {links.map((l) => <a href={u(l.href)}>{l.label}<Icon name="chevronRight" size={18} /></a>)}
       <a href={site.repo} rel="noopener">GitHub<Icon name="external" size={16} /></a>
-      <a class="btn btn-primary btn-lg" href="/download/"><Icon name="download" />Download for Linux</a>
+      <a class="btn btn-primary btn-lg" href={u('/download/')}><Icon name="download" />Download for Linux</a>
     </nav>
   </div>
 </header>

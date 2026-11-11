@@ -1,4 +1,5 @@
 ---
+import { u } from "../lib/url";
 import Icon, { type IconName } from './Icon.astro';
 import AppWindow from './AppWindow.astro';
 import terminal from '../assets/screenshots/terminal.png';
@@ -69,7 +70,7 @@ const tabs: { id: string; icon: IconName; label: string; title: string; body: st
             <h3>{t.title}</h3>
             <p>{t.body}</p>
             <ul>{t.points.map((p) => <li><Icon name="check" size={16} />{p}</li>)}</ul>
-            <a class="more" href={t.doc}>Read the guide <Icon name="arrowRight" size={15} /></a>
+            <a class="more" href={u(t.doc)}>Read the guide <Icon name="arrowRight" size={15} /></a>
           </div>
           <div class="shot"><AppWindow src={t.img} alt={t.alt} title={`Shellport — ${t.label}`} /></div>
         </div>

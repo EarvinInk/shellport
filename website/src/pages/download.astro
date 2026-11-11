@@ -1,4 +1,5 @@
 ---
+import { u } from '../lib/url';
 import Base from '../layouts/Base.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Icon from '../components/Icon.astro';
@@ -98,7 +99,7 @@ const changes = [
         <h3><Icon name="code" size={18} />Build from source</h3>
         <p class="muted">Prefer to compile it yourself? You’ll need Rust, Node.js 20+ with pnpm, and the WebKitGTK development packages.</p>
         <CodeBlock lines={['git clone ' + site.repo + '.git', 'cd shellport && pnpm install', 'pnpm tauri build --bundles deb,appimage']} />
-        <a class="link" href="/docs/build-from-source/">Build guide <Icon name="arrowRight" size={15} /></a>
+        <a class="link" href={u('/docs/build-from-source/')}>Build guide <Icon name="arrowRight" size={15} /></a>
       </div>
 
       <div class="card">
@@ -106,7 +107,7 @@ const changes = [
         <p class="muted">Official packages are built in the open by GitHub Actions on Ubuntu 22.04, straight from the tagged source. Every release lists its files on GitHub.</p>
         <div class="links">
           <a class="link" href={site.releases} rel="noopener">All releases <Icon name="external" size={14} /></a>
-          <a class="link" href="/docs/uninstall/">How to uninstall <Icon name="arrowRight" size={15} /></a>
+          <a class="link" href={u('/docs/uninstall/')}>How to uninstall <Icon name="arrowRight" size={15} /></a>
         </div>
       </div>
     </div>
@@ -118,7 +119,7 @@ const changes = [
         <h2>Installed? Here’s where to start.</h2>
         <p class="muted">Create your vault, import your hosts and connect in under two minutes.</p>
       </div>
-      <a class="btn btn-primary btn-lg" href="/docs/getting-started/"><Icon name="book" />Quick start guide</a>
+      <a class="btn btn-primary btn-lg" href={u('/docs/getting-started/')}><Icon name="book" />Quick start guide</a>
     </div>
   </section>
 </Base>

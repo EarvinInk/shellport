@@ -1,4 +1,5 @@
 ---
+import { u } from '../lib/url';
 import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
@@ -11,7 +12,7 @@ interface Props {
 const { title, description = `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window. Free and open source.` } = Astro.props;
 const fullTitle = title ? `${title} · Shellport` : 'Shellport: SSH, SFTP and Docker for Linux';
 const canonical = new URL(Astro.url.pathname, Astro.site);
-const ogImage = new URL('/og-image.png', Astro.site);
+const ogImage = new URL(u('/og-image.png'), Astro.site);
 ---
 <!doctype html>
 <html lang="en" class="no-js">
@@ -21,8 +22,8 @@ const ogImage = new URL('/og-image.png', Astro.site);
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="icon" href={u('/favicon.svg')} type="image/svg+xml" />
+    <link rel="sitemap" href={u('/sitemap-index.xml')} />
     <meta name="theme-color" content="#080a0f" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={fullTitle} />

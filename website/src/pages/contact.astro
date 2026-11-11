@@ -1,15 +1,18 @@
 ---
+import { u } from '../lib/url';
 import Base from '../layouts/Base.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Icon, { type IconName } from '../components/Icon.astro';
 import { site } from '../site.config';
 
-const channels: { icon: IconName; title: string; body: string; cta: string; href: string; tone?: string }[] = [
+const allChannels: { icon: IconName; title: string; body: string; cta: string; href: string; tone?: string }[] = [
   { icon: 'bug', title: 'Report a bug', body: 'Something broken or behaving oddly? Open an issue with steps to reproduce, and we’ll take a look.', cta: 'Open a bug report', href: site.links.newBug },
   { icon: 'bulb', title: 'Request a feature', body: 'Have an idea that would make Shellport better for your workflow? Tell us what you need and why.', cta: 'Suggest a feature', href: site.links.newFeature },
   { icon: 'message', title: 'Ask the community', body: 'Questions about setup, configuration or how to do something? Start a discussion and get help.', cta: 'Join the discussion', href: site.links.discussions },
   { icon: 'shieldAlert', title: 'Report a vulnerability', body: 'Found a security issue? Please report it privately so it can be fixed before it’s disclosed.', cta: 'Report privately', href: site.links.security, tone: 'danger' },
 ];
+
+const channels = allChannels.filter((c) => c.href);
 
 const faqs = [
   { q: 'Does Shellport collect any data?', a: 'No. There is no telemetry, no account and no cloud service. The app only connects to servers and Docker engines you add.' },
@@ -18,7 +21,7 @@ const faqs = [
   { q: 'Can I use Shellport at work?', a: 'Yes. It’s MIT-licensed, so you can use it personally and commercially at no cost.' },
 ];
 ---
-<Base title="Contact" description="Get help with Shellport, report bugs, request features or get in touch directly.">
+<Base title="Contact" description="Get help with Shellport, report bugs, request features or report a security issue.">
   <PageHeader
     eyebrow="Contact & support"
     title="We’d love to hear from you"
@@ -36,6 +39,7 @@ const faqs = [
     ))}
   </section>
 
+  {site.author.email && (
   <section class="container direct-wrap">
     <div class="direct reveal">
       <div class="direct-icon"><Icon name="mail" size={26} /></div>
@@ -46,6 +50,7 @@ const faqs = [
       <a class="btn btn-primary btn-lg" href={`mailto:${site.author.email}?subject=Shellport`}><Icon name="mail" />{site.author.email}</a>
     </div>
   </section>
+  )}
 
   <section class="section faq">
     <div class="container narrow">
@@ -61,7 +66,7 @@ const faqs = [
           </details>
         ))}
       </div>
-      <p class="more muted">Looking for setup help? The <a href="/docs/">documentation</a> and <a href="/docs/troubleshooting/">troubleshooting guide</a> cover most questions.</p>
+      <p class="more muted">Looking for setup help? The <a href={u('/docs/')}>documentation</a> and <a href={u('/docs/troubleshooting/')}>troubleshooting guide</a> cover most questions.</p>
     </div>
   </section>
 </Base>
