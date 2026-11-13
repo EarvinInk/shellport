@@ -4769,7 +4769,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "chacha20poly1305",
  "chrono",
