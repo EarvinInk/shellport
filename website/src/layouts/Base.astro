@@ -7,10 +7,14 @@ import { site } from '../site.config';
 
 interface Props {
   title?: string;
+  /** Use this exact <title> instead of "<title> · Shellport". */
+  fullTitle?: string;
   description?: string;
+  /** Structured data (schema.org) for search engines. */
+  jsonLd?: Record<string, unknown>;
 }
-const { title, description = `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window. Free and open source.` } = Astro.props;
-const fullTitle = title ? `${title} · Shellport` : 'Shellport: SSH, SFTP and Docker for Linux';
+const { title, description = `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window. Free and open source.`, jsonLd } = Astro.props;
+const fullTitle = Astro.props.fullTitle ?? (title ? `${title} · Shellport` : 'Shellport: SSH, SFTP and Docker client for Linux');
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL(u('/og-image.png'), Astro.site);
 ---
@@ -31,6 +35,9 @@ const ogImage = new URL(u('/og-image.png'), Astro.site);
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
     <meta name="twitter:card" content="summary_large_image" />
+    {site.verification.google && <meta name="google-site-verification" content={site.verification.google} />}
+    {site.verification.bing && <meta name="msvalidate.01" content={site.verification.bing} />}
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
     <script is:inline>
       (function () {
         var d = document.documentElement, t = null;

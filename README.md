@@ -8,6 +8,8 @@
 
 Terminals, file transfers, containers and an encrypted secrets vault, all in a single fast desktop window.
 
+**[Website](https://earvinink.github.io/shellport/)** · **[Documentation](https://earvinink.github.io/shellport/docs/)** · **[Download](https://earvinink.github.io/shellport/download/)**
+
 [![Latest release](https://img.shields.io/github/v/release/EarvinInk/shellport?color=8b5cf6&label=download)](https://github.com/EarvinInk/shellport/releases/latest)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux%20x86__64-8b5cf6)](#install)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8b5cf6)](LICENSE)

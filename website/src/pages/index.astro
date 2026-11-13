@@ -36,8 +36,24 @@ const stats = [
   { value: '0', label: 'Trackers or accounts' },
   { value: 'MIT', label: 'Open-source license' },
 ];
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: site.name,
+  description: `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window.`,
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux',
+  softwareVersion: site.version,
+  url: site.url + '/',
+  downloadUrl: site.releases,
+  license: 'https://opensource.org/licenses/MIT',
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  sameAs: [site.repo],
+};
 ---
-<Base>
+<Base jsonLd={jsonLd}>
   <Hero />
 
   <section class="stats-strip">
