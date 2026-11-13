@@ -62,7 +62,10 @@ pub struct ActivityEntry {
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub fn clip(s: &str) -> String {
@@ -122,12 +125,21 @@ pub struct ActivityFilter {
 
 impl ActivityLog {
     pub fn load(path: PathBuf) -> Self {
-        let entries = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<ActivityFile>(&b).ok()).map(|f| f.entries).unwrap_or_default();
-        ActivityLog { path, entries: Mutex::new(entries) }
+        let entries = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<ActivityFile>(&b).ok())
+            .map(|f| f.entries)
+            .unwrap_or_default();
+        ActivityLog {
+            path,
+            entries: Mutex::new(entries),
+        }
     }
 
     fn save(&self, entries: &[ActivityEntry]) {
-        let f = ActivityFile { entries: entries.to_vec() };
+        let f = ActivityFile {
+            entries: entries.to_vec(),
+        };
         match serde_json::to_vec(&f) {
             Ok(b) => {
                 if let Err(e) = crate::paths::write_private(&self.path, &b) {
@@ -150,15 +162,27 @@ impl ActivityLog {
 
     /// Newest first.
     pub fn list(&self, f: &ActivityFilter) -> Vec<ActivityEntry> {
-        let q = f.search.as_deref().map(str::to_lowercase).filter(|s| !s.is_empty());
+        let q = f
+            .search
+            .as_deref()
+            .map(str::to_lowercase)
+            .filter(|s| !s.is_empty());
         self.entries
             .lock()
             .iter()
             .rev()
-            .filter(|e| f.host_id.as_ref().is_none_or(|h| e.host_id.as_ref() == Some(h) || e.results.iter().any(|r| &r.host_id == h)))
+            .filter(|e| {
+                f.host_id.as_ref().is_none_or(|h| {
+                    e.host_id.as_ref() == Some(h) || e.results.iter().any(|r| &r.host_id == h)
+                })
+            })
             .filter(|e| f.db_id.as_ref().is_none_or(|d| e.db_id.as_ref() == Some(d)))
             .filter(|e| f.kind.as_ref().is_none_or(|k| &e.kind == k))
-            .filter(|e| q.as_ref().is_none_or(|q| e.detail.to_lowercase().contains(q) || e.title.to_lowercase().contains(q)))
+            .filter(|e| {
+                q.as_ref().is_none_or(|q| {
+                    e.detail.to_lowercase().contains(q) || e.title.to_lowercase().contains(q)
+                })
+            })
             .take(f.limit.unwrap_or(500))
             .cloned()
             .collect()
@@ -298,9 +322,22 @@ mod tests {
             e.at = i;
             log.add(e);
         }
-        let a = log.list(&ActivityFilter { db_id: Some("a".into()), ..Default::default() });
-        assert_eq!(a.iter().map(|e| e.detail.as_str()).collect::<Vec<_>>(), ["SELECT 4", "SELECT 2", "SELECT 0"]);
-        assert_eq!(log.list(&ActivityFilter { search: Some("select 3".into()), ..Default::default() }).len(), 1);
+        let a = log.list(&ActivityFilter {
+            db_id: Some("a".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            a.iter().map(|e| e.detail.as_str()).collect::<Vec<_>>(),
+            ["SELECT 4", "SELECT 2", "SELECT 0"]
+        );
+        assert_eq!(
+            log.list(&ActivityFilter {
+                search: Some("select 3".into()),
+                ..Default::default()
+            })
+            .len(),
+            1
+        );
         log.clear(None, Some("a"));
         let again = ActivityLog::load(dir.path().join("a.json"));
         assert_eq!(again.all().len(), 2);
@@ -311,7 +348,10 @@ mod tests {
     fn strips_terminal_escapes() {
         let mut s = AnsiStripper::default();
         let raw = b"\x1b[1;32mok\x1b[0m done\r\n\x1b]0;title\x07next\x1b(Bline\n";
-        assert_eq!(String::from_utf8(s.feed(raw)).unwrap(), "ok done\nnextline\n");
+        assert_eq!(
+            String::from_utf8(s.feed(raw)).unwrap(),
+            "ok done\nnextline\n"
+        );
         // Sequences split across reads.
         let mut s = AnsiStripper::default();
         let mut out = s.feed(b"a\x1b[3");
@@ -325,7 +365,10 @@ mod tests {
         let mut out = l.feed(b"\x1b[1mone\x1b[0m\r\ntw", "10:00:00");
         // A line continued in a later read keeps its first timestamp.
         out.extend(l.feed(b"o\nthree", "10:00:05"));
-        assert_eq!(String::from_utf8(out).unwrap(), "[10:00:00] one\n[10:00:00] two\n[10:00:05] three");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "[10:00:00] one\n[10:00:00] two\n[10:00:05] three"
+        );
         // Escape-only output adds no empty stamped line.
         assert!(LogLines::default().feed(b"\x1b[K", "10:00:06").is_empty());
     }

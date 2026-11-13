@@ -42,7 +42,10 @@ pub struct Backup {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Collect everything to back up.
@@ -84,9 +87,13 @@ pub fn write(path: &Path, passphrase: &str, backup: &Backup) -> Result<()> {
 pub fn read(path: &Path, passphrase: &str) -> Result<Backup> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let plain = vault::open_sealed(MAGIC, passphrase, &bytes)?;
-    let b: Backup = serde_json::from_slice(&plain).context("the backup's contents could not be read")?;
+    let b: Backup =
+        serde_json::from_slice(&plain).context("the backup's contents could not be read")?;
     if b.version > VERSION {
-        bail!("this backup was made by a newer Shellport ({}); update Shellport to restore it", b.app);
+        bail!(
+            "this backup was made by a newer Shellport ({}); update Shellport to restore it",
+            b.app
+        );
     }
     Ok(b)
 }
@@ -123,8 +130,14 @@ pub fn summarize(state: &AppState, b: &Backup) -> Summary {
     Summary {
         created_at: b.created_at,
         app: b.app.clone(),
-        hosts: Counts { total: b.hosts.len(), new: b.hosts.iter().filter(|h| !hosts.has(&h.id)).count() },
-        databases: Counts { total: b.databases.len(), new: b.databases.iter().filter(|d| !dbs.has(&d.id)).count() },
+        hosts: Counts {
+            total: b.hosts.len(),
+            new: b.hosts.iter().filter(|h| !hosts.has(&h.id)).count(),
+        },
+        databases: Counts {
+            total: b.databases.len(),
+            new: b.databases.iter().filter(|d| !dbs.has(&d.id)).count(),
+        },
         commands: b.library.commands.len(),
         workspaces: b.library.workspaces.len(),
         history: b.activity.as_ref().map_or(0, Vec::len),
@@ -151,7 +164,12 @@ pub struct Restored {
 }
 
 /// Merge a backup into this installation.
-pub fn apply(state: &AppState, b: Backup, replace_settings: bool, allowed_shell: impl Fn(&str) -> bool) -> Result<Restored> {
+pub fn apply(
+    state: &AppState,
+    b: Backup,
+    replace_settings: bool,
+    allowed_shell: impl Fn(&str) -> bool,
+) -> Result<Restored> {
     let mut r = Restored::default();
     if let Some(secrets) = b.secrets {
         let mut v = state.vault.lock();
@@ -185,7 +203,10 @@ pub fn apply(state: &AppState, b: Backup, replace_settings: bool, allowed_shell:
 
 /// Default file name for a new backup.
 pub fn default_name() -> String {
-    format!("shellport-backup-{}.{EXTENSION}", chrono::Local::now().format("%Y-%m-%d"))
+    format!(
+        "shellport-backup-{}.{EXTENSION}",
+        chrono::Local::now().format("%Y-%m-%d")
+    )
 }
 
 /// Errors to show as-is, without the anyhow chain noise.
@@ -236,7 +257,11 @@ mod tests {
         // A vault file is not a backup.
         bytes[..4].copy_from_slice(b"SPV1");
         std::fs::write(&p, &bytes).unwrap();
-        assert!(read(&p, "correct horse").err().unwrap().to_string().contains("not a Shellport backup"));
+        assert!(read(&p, "correct horse")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("not a Shellport backup"));
     }
 
     #[test]

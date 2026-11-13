@@ -59,7 +59,11 @@ pub struct LibraryStore {
 
 impl LibraryStore {
     pub fn load(path: PathBuf) -> Result<Self> {
-        let lib = if path.exists() { serde_json::from_slice(&std::fs::read(&path)?)? } else { Library::default() };
+        let lib = if path.exists() {
+            serde_json::from_slice(&std::fs::read(&path)?)?
+        } else {
+            Library::default()
+        };
         Ok(LibraryStore { path, lib })
     }
 
@@ -80,7 +84,14 @@ impl LibraryStore {
             bail!("the command is empty");
         }
         if c.name.trim().is_empty() {
-            c.name = c.command.lines().next().unwrap_or("").chars().take(40).collect();
+            c.name = c
+                .command
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(40)
+                .collect();
         }
         if c.id.is_empty() {
             c.id = uuid::Uuid::new_v4().to_string();
@@ -169,16 +180,31 @@ mod tests {
                 name: String::new(),
                 command: "systemctl status {{service:nginx}}".into(),
                 description: String::new(),
-                scope: CommandScope { hosts: vec!["h1".into()], groups: vec![] },
+                scope: CommandScope {
+                    hosts: vec!["h1".into()],
+                    groups: vec![],
+                },
                 run_on_connect: false,
             })
             .unwrap();
         assert_eq!(c.name, "systemctl status {{service:nginx}}");
-        s.save_workspace(Workspace { id: String::new(), name: "Web".into(), layout: serde_json::json!({"tabs": []}) }).unwrap();
+        s.save_workspace(Workspace {
+            id: String::new(),
+            name: "Web".into(),
+            layout: serde_json::json!({"tabs": []}),
+        })
+        .unwrap();
         s.host_deleted("h1").unwrap();
         let again = LibraryStore::load(p).unwrap().get();
         assert!(again.commands[0].scope.hosts.is_empty());
         assert_eq!(again.workspaces[0].name, "Web");
-        assert!(LibraryStore::load(dir.path().join("x.json")).unwrap().save_workspace(Workspace { id: String::new(), name: " ".into(), layout: serde_json::Value::Null }).is_err());
+        assert!(LibraryStore::load(dir.path().join("x.json"))
+            .unwrap()
+            .save_workspace(Workspace {
+                id: String::new(),
+                name: " ".into(),
+                layout: serde_json::Value::Null
+            })
+            .is_err());
     }
 }

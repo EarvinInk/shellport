@@ -34,10 +34,16 @@ pub fn host_port(host: &str, port: u16) -> String {
 fn hashed_matches(entry: &str, name: &str) -> bool {
     // |1|base64(salt)|base64(HMAC-SHA1(salt, name))
     let mut parts = entry.split('|').skip(2);
-    let (Some(salt), Some(hash)) = (parts.next(), parts.next()) else { return false };
+    let (Some(salt), Some(hash)) = (parts.next(), parts.next()) else {
+        return false;
+    };
     let b64 = data_encoding::BASE64;
-    let (Ok(salt), Ok(hash)) = (b64.decode(salt.as_bytes()), b64.decode(hash.as_bytes())) else { return false };
-    let Ok(mut mac) = Hmac::<sha1::Sha1>::new_from_slice(&salt) else { return false };
+    let (Ok(salt), Ok(hash)) = (b64.decode(salt.as_bytes()), b64.decode(hash.as_bytes())) else {
+        return false;
+    };
+    let Ok(mut mac) = Hmac::<sha1::Sha1>::new_from_slice(&salt) else {
+        return false;
+    };
     mac.update(name.as_bytes());
     mac.verify_slice(&hash).is_ok()
 }
@@ -92,9 +98,13 @@ pub fn check_text(name: &str, key: &PublicKey, text: &str) -> Verdict {
             continue;
         }
         let _algo = tok.next();
-        let parsed = tok.next().and_then(|b| russh::keys::parse_public_key_base64(b).ok());
+        let parsed = tok
+            .next()
+            .and_then(|b| russh::keys::parse_public_key_base64(b).ok());
         match (marker, parsed) {
-            (Some("@revoked"), Some(k)) if k.key_data() == key.key_data() => return Verdict::Revoked { line: line_no },
+            (Some("@revoked"), Some(k)) if k.key_data() == key.key_data() => {
+                return Verdict::Revoked { line: line_no }
+            }
             (Some(_), _) => {}
             (None, Some(k)) if k.key_data() == key.key_data() => known = true,
             (None, _) => {
@@ -126,18 +136,25 @@ mod tests {
         let kh = format!("example.com ssh-ed25519 {ED}\n");
         assert_eq!(check_text("example.com", &k(ED), &kh), Verdict::Known);
         assert_eq!(check_text("other.com", &k(ED), &kh), Verdict::Unknown);
-        assert_eq!(check_text("example.com", &k(ED2), &kh), Verdict::Changed { line: Some(1) });
+        assert_eq!(
+            check_text("example.com", &k(ED2), &kh),
+            Verdict::Changed { line: Some(1) }
+        );
     }
 
     #[test]
     fn different_algorithm_counts_as_changed() {
         let kh = format!("# c\nexample.com ssh-ed25519 {ED}\n");
-        assert_eq!(check_text("example.com", &k(ECDSA), &kh), Verdict::Changed { line: Some(2) });
+        assert_eq!(
+            check_text("example.com", &k(ECDSA), &kh),
+            Verdict::Changed { line: Some(2) }
+        );
     }
 
     #[test]
     fn tabs_ports_wildcards_and_negation() {
-        let kh = format!("[10.0.0.5]:2222\tssh-ed25519\t{ED}\n*.corp,!bad.corp ssh-ed25519 {ED2}\n");
+        let kh =
+            format!("[10.0.0.5]:2222\tssh-ed25519\t{ED}\n*.corp,!bad.corp ssh-ed25519 {ED2}\n");
         assert_eq!(check_text("[10.0.0.5]:2222", &k(ED), &kh), Verdict::Known);
         assert_eq!(check_text("a.corp", &k(ED2), &kh), Verdict::Known);
         assert_eq!(check_text("bad.corp", &k(ED2), &kh), Verdict::Unknown);
@@ -152,7 +169,11 @@ mod tests {
         let mut mac = Hmac::<sha1::Sha1>::new_from_slice(&salt).unwrap();
         mac.update(b"example.com");
         let b64 = data_encoding::BASE64;
-        let entry = format!("|1|{}|{}", b64.encode(&salt), b64.encode(&mac.finalize().into_bytes()));
+        let entry = format!(
+            "|1|{}|{}",
+            b64.encode(&salt),
+            b64.encode(&mac.finalize().into_bytes())
+        );
         let kh = format!("{entry} ssh-ed25519 {ED}\n");
         assert_eq!(check_text("example.com", &k(ED), &kh), Verdict::Known);
         assert_eq!(check_text("example.org", &k(ED), &kh), Verdict::Unknown);
@@ -161,9 +182,15 @@ mod tests {
     #[test]
     fn revoked_and_broken_entries() {
         let kh = format!("@revoked * ssh-ed25519 {ED}\nexample.com ssh-ed25519 {ED}\n");
-        assert_eq!(check_text("example.com", &k(ED), &kh), Verdict::Revoked { line: 1 });
+        assert_eq!(
+            check_text("example.com", &k(ED), &kh),
+            Verdict::Revoked { line: 1 }
+        );
         let broken = "example.com ssh-ed25519 notbase64!!\n";
-        assert_eq!(check_text("example.com", &k(ED), broken), Verdict::Changed { line: Some(1) });
+        assert_eq!(
+            check_text("example.com", &k(ED), broken),
+            Verdict::Changed { line: Some(1) }
+        );
         let ca = format!("@cert-authority * ssh-ed25519 {ED2}\n");
         assert_eq!(check_text("example.com", &k(ED), &ca), Verdict::Unknown);
     }

@@ -20,12 +20,18 @@ impl client::Handler for H {
 async fn main() -> anyhow::Result<()> {
     let cfg = Arc::new(client::Config::default());
     let mut h = client::connect(cfg, ("127.0.0.1", 2222), H).await?;
-    assert!(h.authenticate_password("test", "shellport-test").await?.success(), "auth failed");
+    assert!(
+        h.authenticate_password("test", "shellport-test")
+            .await?
+            .success(),
+        "auth failed"
+    );
     println!("[ok] password auth");
 
     // PTY shell round trip
     let ch = h.channel_open_session().await?;
-    ch.request_pty(false, "xterm-256color", 80, 24, 0, 0, &[]).await?;
+    ch.request_pty(false, "xterm-256color", 80, 24, 0, 0, &[])
+        .await?;
     ch.request_shell(true).await?;
     let (mut r, w) = ch.split();
     w.data(&b"echo shellport-$((40+2)); exit\n"[..]).await?;
@@ -35,7 +41,11 @@ async fn main() -> anyhow::Result<()> {
             out.extend_from_slice(&data);
         }
     }
-    assert!(String::from_utf8_lossy(&out).contains("shellport-42"), "shell output: {}", String::from_utf8_lossy(&out));
+    assert!(
+        String::from_utf8_lossy(&out).contains("shellport-42"),
+        "shell output: {}",
+        String::from_utf8_lossy(&out)
+    );
     println!("[ok] pty shell");
 
     // SFTP
@@ -46,7 +56,12 @@ async fn main() -> anyhow::Result<()> {
     {
         use tokio::io::AsyncWriteExt;
         let mut f = sftp
-            .open_with_flags(format!("{home}/smoke.txt"), russh_sftp::protocol::OpenFlags::CREATE | russh_sftp::protocol::OpenFlags::TRUNCATE | russh_sftp::protocol::OpenFlags::WRITE)
+            .open_with_flags(
+                format!("{home}/smoke.txt"),
+                russh_sftp::protocol::OpenFlags::CREATE
+                    | russh_sftp::protocol::OpenFlags::TRUNCATE
+                    | russh_sftp::protocol::OpenFlags::WRITE,
+            )
             .await?;
         f.write_all(b"hello").await?;
         f.shutdown().await?;
@@ -64,10 +79,15 @@ async fn main() -> anyhow::Result<()> {
     let hh = h.clone();
     tokio::spawn(async move {
         loop {
-            let Ok((mut s, _)) = listener.accept().await else { break };
+            let Ok((mut s, _)) = listener.accept().await else {
+                break;
+            };
             let hh = hh.clone();
             tokio::spawn(async move {
-                match hh.channel_open_direct_streamlocal("/var/run/docker.sock").await {
+                match hh
+                    .channel_open_direct_streamlocal("/var/run/docker.sock")
+                    .await
+                {
                     Ok(ch) => {
                         let mut cs = ch.into_stream();
                         let _ = tokio::io::copy_bidirectional(&mut s, &mut cs).await;
@@ -77,9 +97,19 @@ async fn main() -> anyhow::Result<()> {
             });
         }
     });
-    let docker = bollard::Docker::connect_with_unix(sock.to_str().unwrap(), 30, bollard::API_DEFAULT_VERSION)?;
+    let docker = bollard::Docker::connect_with_unix(
+        sock.to_str().unwrap(),
+        30,
+        bollard::API_DEFAULT_VERSION,
+    )?;
     let v = docker.version().await?;
-    let list = docker.list_containers(Some(ListContainersOptionsBuilder::new().all(true).build())).await?;
-    println!("[ok] docker via ssh socket: server {:?}, {} containers", v.version, list.len());
+    let list = docker
+        .list_containers(Some(ListContainersOptionsBuilder::new().all(true).build()))
+        .await?;
+    println!(
+        "[ok] docker via ssh socket: server {:?}, {} containers",
+        v.version,
+        list.len()
+    );
     Ok(())
 }

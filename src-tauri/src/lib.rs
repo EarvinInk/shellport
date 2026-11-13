@@ -7,19 +7,19 @@ mod docker_admin;
 mod error;
 mod glob;
 mod known_hosts;
+mod local_edit;
+mod local_fs;
 mod paths;
+mod remote_edit;
+mod remote_ops;
 mod runner;
 mod sftp;
-mod transfers;
-mod remote_edit;
-mod local_edit;
-mod sudo;
-mod remote_ops;
-mod local_fs;
 mod ssh;
 mod state;
 mod store;
+mod sudo;
 mod term;
+mod transfers;
 mod vault;
 
 use state::AppState;
@@ -38,7 +38,9 @@ fn spawn_auto_lock(app: tauri::AppHandle) {
             }
             let locked = {
                 let mut v = state.vault.lock();
-                if v.is_unlocked() && v.last_activity.elapsed() > Duration::from_secs(minutes as u64 * 60) {
+                if v.is_unlocked()
+                    && v.last_activity.elapsed() > Duration::from_secs(minutes as u64 * 60)
+                {
                     v.lock();
                     true
                 } else {

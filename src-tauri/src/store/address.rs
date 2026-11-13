@@ -35,20 +35,30 @@ pub fn clean_host(raw: &str) -> Result<Address> {
     }
     // [v6]:port, v4/name:port; a bare IPv6 address has several colons.
     if let Some(rest) = s.strip_prefix('[') {
-        let Some((h, after)) = rest.split_once(']') else { bail!("unclosed [ in the host") };
+        let Some((h, after)) = rest.split_once(']') else {
+            bail!("unclosed [ in the host")
+        };
         if let Some(p) = after.strip_prefix(':') {
-            out.port = Some(p.parse().map_err(|_| anyhow::anyhow!("\"{p}\" is not a port number"))?);
+            out.port = Some(
+                p.parse()
+                    .map_err(|_| anyhow::anyhow!("\"{p}\" is not a port number"))?,
+            );
         }
         s = h;
     } else if s.matches(':').count() == 1 {
         let (h, p) = s.split_once(':').unwrap();
-        out.port = Some(p.parse().map_err(|_| anyhow::anyhow!("\"{p}\" is not a port number"))?);
+        out.port = Some(
+            p.parse()
+                .map_err(|_| anyhow::anyhow!("\"{p}\" is not a port number"))?,
+        );
         s = h;
     }
     if s.is_empty() {
         bail!("the host is empty");
     }
-    if s.chars().any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | '\\' | ',' | ';')) {
+    if s.chars()
+        .any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | '\\' | ',' | ';'))
+    {
         bail!("\"{s}\" is not a valid host name or address");
     }
     out.host = s.to_string();
@@ -75,7 +85,10 @@ fn pct_decode(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
                 out.push(v);
                 i += 3;
                 continue;
@@ -90,8 +103,13 @@ fn pct_decode(s: &str) -> String {
 /// Parse `postgres[ql]://user:pass@host:port/db?sslmode=…`.
 pub fn parse_db_url(raw: &str) -> Result<DbUrl> {
     let raw = raw.trim();
-    let Some((scheme, rest)) = raw.split_once("://") else { bail!("expected a URL like postgres://user@host:5432/database") };
-    if !matches!(scheme.to_ascii_lowercase().as_str(), "postgres" | "postgresql") {
+    let Some((scheme, rest)) = raw.split_once("://") else {
+        bail!("expected a URL like postgres://user@host:5432/database")
+    };
+    if !matches!(
+        scheme.to_ascii_lowercase().as_str(),
+        "postgres" | "postgresql"
+    ) {
         bail!("only postgres:// URLs are supported for now");
     }
     let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
@@ -100,9 +118,15 @@ pub fn parse_db_url(raw: &str) -> Result<DbUrl> {
         Some((u, h)) => (Some(u), h),
         None => (None, authority),
     };
-    let mut out = DbUrl { database: pct_decode(path), ..Default::default() };
+    let mut out = DbUrl {
+        database: pct_decode(path),
+        ..Default::default()
+    };
     if let Some(u) = userinfo {
-        let (user, pass) = u.split_once(':').map(|(a, b)| (a, Some(b))).unwrap_or((u, None));
+        let (user, pass) = u
+            .split_once(':')
+            .map(|(a, b)| (a, Some(b)))
+            .unwrap_or((u, None));
         out.username = pct_decode(user);
         out.password = pass.map(pct_decode).filter(|p| !p.is_empty());
     }
@@ -133,7 +157,9 @@ pub fn parse_db_url(raw: &str) -> Result<DbUrl> {
                 out.options.insert("pooler".into(), "1".into());
             }
             "user" if out.username.is_empty() => out.username = v,
-            "password" if out.password.is_none() => out.password = Some(v).filter(|p| !p.is_empty()),
+            "password" if out.password.is_none() => {
+                out.password = Some(v).filter(|p| !p.is_empty())
+            }
             "dbname" if out.database.is_empty() => out.database = v,
             _ => {}
         }
@@ -149,8 +175,18 @@ mod tests {
     fn cleans_pasted_hosts() {
         assert_eq!(clean_host(" db.internal/ ").unwrap().host, "db.internal");
         let a = clean_host("ssh://deploy@example.com:2222/home").unwrap();
-        assert_eq!((a.host.as_str(), a.user.as_deref(), a.port), ("example.com", Some("deploy"), Some(2222)));
-        assert_eq!(clean_host("[::1]:5432").unwrap(), Address { host: "::1".into(), user: None, port: Some(5432) });
+        assert_eq!(
+            (a.host.as_str(), a.user.as_deref(), a.port),
+            ("example.com", Some("deploy"), Some(2222))
+        );
+        assert_eq!(
+            clean_host("[::1]:5432").unwrap(),
+            Address {
+                host: "::1".into(),
+                user: None,
+                port: Some(5432)
+            }
+        );
         assert_eq!(clean_host("fe80::1").unwrap().host, "fe80::1");
         assert!(clean_host("my host").is_err());
         assert!(clean_host("host:abc").is_err());
@@ -162,12 +198,21 @@ mod tests {
         let u = parse_db_url("postgresql://app%40corp:s%3Acret@db.example.com:6543/orders?sslmode=verify-full&pgbouncer=true&application_name=me").unwrap();
         assert_eq!(u.username, "app@corp");
         assert_eq!(u.password.as_deref(), Some("s:cret"));
-        assert_eq!((u.host.as_str(), u.port, u.database.as_str()), ("db.example.com", Some(6543), "orders"));
+        assert_eq!(
+            (u.host.as_str(), u.port, u.database.as_str()),
+            ("db.example.com", Some(6543), "orders")
+        );
         assert_eq!(u.ssl_mode.as_deref(), Some("verify-full"));
         assert_eq!(u.options.get("pooler").map(String::as_str), Some("1"));
-        assert_eq!(u.options.get("application_name").map(String::as_str), Some("me"));
+        assert_eq!(
+            u.options.get("application_name").map(String::as_str),
+            Some("me")
+        );
         let u = parse_db_url("postgres://localhost").unwrap();
-        assert_eq!((u.host.as_str(), u.port, u.username.as_str()), ("localhost", None, ""));
+        assert_eq!(
+            (u.host.as_str(), u.port, u.username.as_str()),
+            ("localhost", None, "")
+        );
         assert!(parse_db_url("mysql://x").is_err());
         assert!(parse_db_url("postgres://h/db?sslmode=bogus").is_err());
     }

@@ -38,15 +38,27 @@ fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8, files: &mut usize) 
     if std::fs::metadata(path).map_or(true, |m| !m.is_file() || m.len() > MAX_FILE_BYTES) {
         return;
     }
-    let Ok(text) = std::fs::read_to_string(path) else { return };
-    let base = path.parent().map(Path::to_path_buf).unwrap_or_else(|| home_dir().join(".ssh"));
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let base = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| home_dir().join(".ssh"));
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let (key, val) = match line.split_once(|c: char| c.is_whitespace() || c == '=') {
-            Some((k, v)) => (k.trim().to_lowercase(), v.trim().trim_start_matches('=').trim().trim_matches('"').to_string()),
+            Some((k, v)) => (
+                k.trim().to_lowercase(),
+                v.trim()
+                    .trim_start_matches('=')
+                    .trim()
+                    .trim_matches('"')
+                    .to_string(),
+            ),
             None => continue,
         };
         match key.as_str() {
@@ -55,7 +67,10 @@ fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8, files: &mut usize) 
                 patterns: val.split_whitespace().map(String::from).collect(),
                 opts: HashMap::new(),
             }),
-            "match" => out.push(Block { patterns: vec![], opts: HashMap::new() }),
+            "match" => out.push(Block {
+                patterns: vec![],
+                opts: HashMap::new(),
+            }),
             "include" => {
                 for pat in val.split_whitespace() {
                     let p = expand_tilde(pat);
@@ -67,7 +82,10 @@ fn read_blocks(path: &Path, out: &mut Vec<Block>, depth: u8, files: &mut usize) 
             }
             _ => {
                 if out.is_empty() {
-                    out.push(Block { patterns: vec!["*".into()], opts: HashMap::new() });
+                    out.push(Block {
+                        patterns: vec!["*".into()],
+                        opts: HashMap::new(),
+                    });
                 }
                 // First value wins, like OpenSSH.
                 out.last_mut().unwrap().opts.entry(key).or_insert(val);
@@ -142,7 +160,10 @@ pub fn parse_file(path: &Path) -> Vec<SshConfigEntry> {
                 user: opts.get("user").cloned(),
                 port: opts.get("port").and_then(|p| p.parse().ok()),
                 identity_file: opts.get("identityfile").cloned(),
-                proxy_jump: opts.get("proxyjump").filter(|p| p.to_lowercase() != "none").cloned(),
+                proxy_jump: opts
+                    .get("proxyjump")
+                    .filter(|p| p.to_lowercase() != "none")
+                    .cloned(),
                 alias,
             }
         })
@@ -155,8 +176,12 @@ pub fn parse_file(path: &Path) -> Vec<SshConfigEntry> {
 pub fn refresh_linked(hosts: &[Host], entries: &[SshConfigEntry]) -> Vec<Host> {
     let mut changed = Vec::new();
     for h in hosts {
-        let Some(alias) = h.ssh_config_alias.as_deref() else { continue };
-        let Some(e) = entries.iter().find(|e| e.alias == alias) else { continue };
+        let Some(alias) = h.ssh_config_alias.as_deref() else {
+            continue;
+        };
+        let Some(e) = entries.iter().find(|e| e.alias == alias) else {
+            continue;
+        };
         let mut n = h.clone();
         n.hostname = e.hostname.clone().unwrap_or_else(|| alias.to_string());
         if let Some(u) = &e.user {
@@ -165,11 +190,17 @@ pub fn refresh_linked(hosts: &[Host], entries: &[SshConfigEntry]) -> Vec<Host> {
         n.port = e.port.unwrap_or(22);
         if matches!(n.auth, AuthMethod::KeyFile { .. } | AuthMethod::Agent) {
             let pass = match &n.auth {
-                AuthMethod::KeyFile { passphrase_secret_id, .. } => passphrase_secret_id.clone(),
+                AuthMethod::KeyFile {
+                    passphrase_secret_id,
+                    ..
+                } => passphrase_secret_id.clone(),
                 _ => None,
             };
             n.auth = match &e.identity_file {
-                Some(f) => AuthMethod::KeyFile { path: f.clone(), passphrase_secret_id: pass },
+                Some(f) => AuthMethod::KeyFile {
+                    path: f.clone(),
+                    passphrase_secret_id: pass,
+                },
                 None => AuthMethod::Agent,
             };
         }
@@ -178,11 +209,22 @@ pub fn refresh_linked(hosts: &[Host], entries: &[SshConfigEntry]) -> Vec<Host> {
                 let first = pj.split(',').next().unwrap_or("");
                 let name = first.rsplit_once('@').map(|(_, h)| h).unwrap_or(first);
                 let name = name.split(':').next().unwrap_or(name);
-                hosts.iter().find(|j| j.id != h.id && (j.ssh_config_alias.as_deref() == Some(name) || j.name == name)).map(|j| j.id.clone())
+                hosts
+                    .iter()
+                    .find(|j| {
+                        j.id != h.id
+                            && (j.ssh_config_alias.as_deref() == Some(name) || j.name == name)
+                    })
+                    .map(|j| j.id.clone())
             }
             None => None,
         };
-        if n.hostname != h.hostname || n.username != h.username || n.port != h.port || n.auth != h.auth || n.jump_host_id != h.jump_host_id {
+        if n.hostname != h.hostname
+            || n.username != h.username
+            || n.port != h.port
+            || n.auth != h.auth
+            || n.jump_host_id != h.jump_host_id
+        {
             changed.push(n);
         }
     }
@@ -195,7 +237,11 @@ pub fn managed_for(host: &Host, jump_alias: Option<&str>) -> super::ssh_config_e
     Managed {
         hostname: Some(host.hostname.clone()),
         user: Some(host.username.clone()),
-        port: Some(if host.port == 22 { String::new() } else { host.port.to_string() }),
+        port: Some(if host.port == 22 {
+            String::new()
+        } else {
+            host.port.to_string()
+        }),
         identity_file: match &host.auth {
             AuthMethod::KeyFile { path, .. } => Some(path.clone()),
             AuthMethod::Agent => Some(String::new()),
@@ -214,11 +260,16 @@ pub fn managed_for(host: &Host, jump_alias: Option<&str>) -> super::ssh_config_e
 /// Write `host` back into the config file, keeping everything else intact.
 /// A copy of the previous file is kept next to it.
 pub fn write_linked(path: &Path, host: &Host, jump_alias: Option<&str>) -> anyhow::Result<()> {
-    let alias = host.ssh_config_alias.as_deref().ok_or_else(|| anyhow::anyhow!("host is not linked to ~/.ssh/config"))?;
+    let alias = host
+        .ssh_config_alias
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("host is not linked to ~/.ssh/config"))?;
     let old = std::fs::read_to_string(path).unwrap_or_default();
     // Defined only in an included file: appending here would be shadowed by
     // the original, so don't pretend to have saved it.
-    if !super::ssh_config_edit::has_block(&old, alias) && parse_file(path).iter().any(|e| e.alias == alias) {
+    if !super::ssh_config_edit::has_block(&old, alias)
+        && parse_file(path).iter().any(|e| e.alias == alias)
+    {
         anyhow::bail!("\"{alias}\" is defined in a file included from {} (or shares a Host line with other names); edit it there, or turn off sync for this host", path.display());
     }
     let new = super::ssh_config_edit::upsert_block(&old, alias, &managed_for(host, jump_alias));
@@ -229,7 +280,10 @@ pub fn write_linked(path: &Path, host: &Host, jump_alias: Option<&str>) -> anyho
         std::fs::create_dir_all(dir)?;
     }
     if !old.is_empty() {
-        crate::paths::write_private(&path.with_file_name("config.shellport-backup"), old.as_bytes())?;
+        crate::paths::write_private(
+            &path.with_file_name("config.shellport-backup"),
+            old.as_bytes(),
+        )?;
     }
     crate::paths::write_private(path, new.as_bytes())?;
     Ok(())
@@ -253,7 +307,10 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
             port: e.port.unwrap_or(22),
             username: e.user.clone().unwrap_or_else(|| default_user.clone()),
             auth: match &e.identity_file {
-                Some(f) => AuthMethod::KeyFile { path: f.clone(), passphrase_secret_id: None },
+                Some(f) => AuthMethod::KeyFile {
+                    path: f.clone(),
+                    passphrase_secret_id: None,
+                },
                 None => AuthMethod::Agent,
             },
             jump_host_id: None,
@@ -274,7 +331,10 @@ pub fn to_hosts(entries: &[SshConfigEntry]) -> Vec<Host> {
         })
         .collect();
     // Resolve ProxyJump (first hop only; `user@host:port` forms match by alias).
-    let ids: HashMap<String, String> = hosts.iter().map(|h| (h.name.clone(), h.id.clone())).collect();
+    let ids: HashMap<String, String> = hosts
+        .iter()
+        .map(|h| (h.name.clone(), h.id.clone()))
+        .collect();
     for (h, e) in hosts.iter_mut().zip(entries) {
         if let Some(pj) = &e.proxy_jump {
             let first = pj.split(',').next().unwrap_or("");
@@ -309,18 +369,36 @@ mod tests {
         web.port = 2200;
         write_linked(&path, &web, Some("bastion")).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with("# keep me\nHost bastion\n  HostName 1.2.3.4\n"), "{text}");
-        assert!(text.contains("  HostName 10.0.0.6\n") && text.contains("  Port 2200\n") && text.contains("  ForwardAgent yes\n"), "{text}");
+        assert!(
+            text.starts_with("# keep me\nHost bastion\n  HostName 1.2.3.4\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  HostName 10.0.0.6\n")
+                && text.contains("  Port 2200\n")
+                && text.contains("  ForwardAgent yes\n"),
+            "{text}"
+        );
         assert!(dir.path().join("config.shellport-backup").exists());
         let again = parse_file(&path);
         let e = again.iter().find(|e| e.alias == "web").unwrap();
-        assert_eq!((e.hostname.as_deref(), e.port), (Some("10.0.0.6"), Some(2200)));
+        assert_eq!(
+            (e.hostname.as_deref(), e.port),
+            (Some("10.0.0.6"), Some(2200))
+        );
         // A host that only exists in an included file is refused, not duplicated.
         std::fs::write(dir.path().join("extra"), "Host inc\n  HostName 9.9.9.9\n").unwrap();
-        std::fs::write(&path, format!("Include {}\n", dir.path().join("extra").display())).unwrap();
+        std::fs::write(
+            &path,
+            format!("Include {}\n", dir.path().join("extra").display()),
+        )
+        .unwrap();
         let mut inc = web.clone();
         inc.ssh_config_alias = Some("inc".into());
-        assert!(write_linked(&path, &inc, None).unwrap_err().to_string().contains("included"));
+        assert!(write_linked(&path, &inc, None)
+            .unwrap_err()
+            .to_string()
+            .contains("included"));
     }
 
     #[test]
@@ -374,7 +452,10 @@ mod tests {
     fn negation_and_wildcards() {
         assert!(pattern_matches("*.prod", "api.prod"));
         assert!(!pattern_matches("*.prod", "api.dev"));
-        let b = Block { patterns: vec!["*".into(), "!secret".into()], opts: HashMap::new() };
+        let b = Block {
+            patterns: vec!["*".into(), "!secret".into()],
+            opts: HashMap::new(),
+        };
         assert!(block_matches(&b, "web"));
         assert!(!block_matches(&b, "secret"));
     }

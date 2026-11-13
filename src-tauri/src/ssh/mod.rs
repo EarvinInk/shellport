@@ -56,7 +56,10 @@ fn forget_known_host(host: &str, port: u16, path: &std::path::Path) -> Result<()
         .output()
         .context("running ssh-keygen -R")?;
     if !out.status.success() {
-        bail!("ssh-keygen -R failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!(
+            "ssh-keygen -R failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
     Ok(())
 }
@@ -87,17 +90,24 @@ struct PromptGuard {
 impl Drop for PromptGuard {
     fn drop(&mut self) {
         self.pending.lock().remove(&self.request_id);
-        let _ = self.app.emit("hostkey-prompt-done", self.request_id.clone());
+        let _ = self
+            .app
+            .emit("hostkey-prompt-done", self.request_id.clone());
     }
 }
 
 impl client::Handler for Client {
     type Error = anyhow::Error;
 
-    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
         let pk = key.public_key();
         let path = known_hosts_file();
-        let (changed, changed_line) = match crate::known_hosts::check(&self.host, self.port, &pk, &path) {
+        let (changed, changed_line) = match crate::known_hosts::check(
+            &self.host, self.port, &pk, &path,
+        ) {
             crate::known_hosts::Verdict::Known => return Ok(true),
             crate::known_hosts::Verdict::Unknown => (false, None),
             crate::known_hosts::Verdict::Changed { line } => (true, line),
@@ -114,7 +124,11 @@ impl client::Handler for Client {
         self.pending.lock().insert(request_id.clone(), tx);
         // However this prompt ends (answer, timeout, or the connection attempt
         // being dropped), remove it and close its dialog in the UI.
-        let _guard = PromptGuard { app: self.app.clone(), pending: self.pending.clone(), request_id: request_id.clone() };
+        let _guard = PromptGuard {
+            app: self.app.clone(),
+            pending: self.pending.clone(),
+            request_id: request_id.clone(),
+        };
         let prompt = HostKeyPrompt {
             request_id: request_id.clone(),
             host: self.host.clone(),
@@ -133,7 +147,11 @@ impl client::Handler for Client {
         self.pending.lock().remove(&request_id);
         // A changed key is either replaced after confirmation or rejected:
         // never "connect once", which would send credentials to a possible MITM.
-        let decision = if changed && decision == HostKeyDecision::Once { HostKeyDecision::Reject } else { decision };
+        let decision = if changed && decision == HostKeyDecision::Once {
+            HostKeyDecision::Reject
+        } else {
+            decision
+        };
         if decision == HostKeyDecision::Trust {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
@@ -141,11 +159,16 @@ impl client::Handler for Client {
             if changed {
                 if let Err(e) = forget_known_host(&self.host, self.port, &path) {
                     log::warn!("could not remove old host key: {e:#}");
-                    let _ = self.app.emit("app-error", format!("Could not remove the old host key: {e:#}"));
+                    let _ = self.app.emit(
+                        "app-error",
+                        format!("Could not remove the old host key: {e:#}"),
+                    );
                     return Ok(false);
                 }
             }
-            if let Err(e) = keys::known_hosts::learn_known_hosts_path(&self.host, self.port, &pk, &path) {
+            if let Err(e) =
+                keys::known_hosts::learn_known_hosts_path(&self.host, self.port, &pk, &path)
+            {
                 log::warn!("could not write known_hosts: {e}");
             }
         }
@@ -182,7 +205,11 @@ impl SshConn {
             }
         }
         if code.unwrap_or(0) != 0 {
-            bail!("`{cmd}` failed ({}): {}", code.unwrap_or(0), String::from_utf8_lossy(&err).trim());
+            bail!(
+                "`{cmd}` failed ({}): {}",
+                code.unwrap_or(0),
+                String::from_utf8_lossy(&err).trim()
+            );
         }
         Ok(String::from_utf8_lossy(&out).into_owned())
     }
@@ -198,17 +225,26 @@ enum Creds {
 
 fn resolve_creds(state: &AppState, host: &Host) -> Result<Creds> {
     let vault = state.vault.lock();
-    let need_vault = || anyhow!("unlock the vault to use stored credentials for {}", host.name);
+    let need_vault = || {
+        anyhow!(
+            "unlock the vault to use stored credentials for {}",
+            host.name
+        )
+    };
     Ok(match &host.auth {
         AuthMethod::Password { secret_id } => {
-            let id = secret_id.as_deref().ok_or_else(|| anyhow!("no password secret selected for {}", host.name))?;
+            let id = secret_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("no password secret selected for {}", host.name))?;
             if !vault.is_unlocked() {
                 return Err(need_vault());
             }
             Creds::Password(Zeroizing::new(vault.get(id)?.value.clone()))
         }
         AuthMethod::VaultKey { secret_id } => {
-            let id = secret_id.as_deref().ok_or_else(|| anyhow!("no key secret selected for {}", host.name))?;
+            let id = secret_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("no key secret selected for {}", host.name))?;
             if !vault.is_unlocked() {
                 return Err(need_vault());
             }
@@ -216,10 +252,14 @@ fn resolve_creds(state: &AppState, host: &Host) -> Result<Creds> {
             if s.kind != SecretKind::PrivateKey {
                 bail!("secret '{}' is not a private key", s.name);
             }
-            let k = keys::decode_secret_key(&s.value, s.passphrase.as_deref()).context("decoding private key")?;
+            let k = keys::decode_secret_key(&s.value, s.passphrase.as_deref())
+                .context("decoding private key")?;
             Creds::Key(Arc::new(k))
         }
-        AuthMethod::KeyFile { path, passphrase_secret_id } => {
+        AuthMethod::KeyFile {
+            path,
+            passphrase_secret_id,
+        } => {
             let pass = match passphrase_secret_id {
                 Some(id) => {
                     if !vault.is_unlocked() {
@@ -256,11 +296,20 @@ pub struct AuthPromptField {
 
 fn is_password_prompt(p: &str) -> bool {
     let p = p.to_lowercase();
-    (p.contains("password") || p.contains("passphrase")) && !p.contains("code") && !p.contains("otp") && !p.contains("token")
+    (p.contains("password") || p.contains("passphrase"))
+        && !p.contains("code")
+        && !p.contains("otp")
+        && !p.contains("token")
 }
 
 /// Ask the UI to answer keyboard-interactive prompts (OTP, 2FA codes, …).
-async fn ask_user(app: &AppHandle, host: &str, name: String, instructions: String, prompts: &[russh::client::Prompt]) -> Result<Vec<String>> {
+async fn ask_user(
+    app: &AppHandle,
+    host: &str,
+    name: String,
+    instructions: String,
+    prompts: &[russh::client::Prompt],
+) -> Result<Vec<String>> {
     let state = app.state::<AppState>();
     let request_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
@@ -272,24 +321,46 @@ async fn ask_user(app: &AppHandle, host: &str, name: String, instructions: Strin
             host: host.to_string(),
             name,
             instructions,
-            prompts: prompts.iter().map(|p| AuthPromptField { prompt: p.prompt.clone(), echo: p.echo }).collect(),
+            prompts: prompts
+                .iter()
+                .map(|p| AuthPromptField {
+                    prompt: p.prompt.clone(),
+                    echo: p.echo,
+                })
+                .collect(),
         },
     )?;
-    let answer = tokio::time::timeout(Duration::from_secs(300), rx).await.ok().and_then(|r| r.ok()).flatten();
+    let answer = tokio::time::timeout(Duration::from_secs(300), rx)
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .flatten();
     state.auth_pending.lock().remove(&request_id);
     answer.ok_or_else(|| anyhow!("authentication cancelled"))
 }
 
 /// Run keyboard-interactive auth. Password-looking prompts are answered from
 /// `password` (once); anything else (verification codes) is asked of the user.
-async fn keyboard_interactive(app: &AppHandle, handle: &mut Handle<Client>, host: &str, user: &str, password: Option<&str>) -> Result<bool> {
-    let mut resp = handle.authenticate_keyboard_interactive_start(user, None).await?;
+async fn keyboard_interactive(
+    app: &AppHandle,
+    handle: &mut Handle<Client>,
+    host: &str,
+    user: &str,
+    password: Option<&str>,
+) -> Result<bool> {
+    let mut resp = handle
+        .authenticate_keyboard_interactive_start(user, None)
+        .await?;
     let mut password_used = false;
     for _ in 0..10 {
         match resp {
             KeyboardInteractiveAuthResponse::Success => return Ok(true),
             KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
-            KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
                 let answers = if prompts.is_empty() {
                     vec![]
                 } else if let (Some(pw), false) = (password, password_used) {
@@ -302,7 +373,9 @@ async fn keyboard_interactive(app: &AppHandle, handle: &mut Handle<Client>, host
                 } else {
                     ask_user(app, host, name, instructions, &prompts).await?
                 };
-                resp = handle.authenticate_keyboard_interactive_respond(answers).await?;
+                resp = handle
+                    .authenticate_keyboard_interactive_respond(answers)
+                    .await?;
             }
         }
     }
@@ -310,10 +383,22 @@ async fn keyboard_interactive(app: &AppHandle, handle: &mut Handle<Client>, host
 }
 
 fn partial_success(r: &russh::client::AuthResult) -> bool {
-    matches!(r, russh::client::AuthResult::Failure { partial_success: true, .. })
+    matches!(
+        r,
+        russh::client::AuthResult::Failure {
+            partial_success: true,
+            ..
+        }
+    )
 }
 
-async fn authenticate(app: &AppHandle, handle: &mut Handle<Client>, host: &str, user: &str, creds: Creds) -> Result<()> {
+async fn authenticate(
+    app: &AppHandle,
+    handle: &mut Handle<Client>,
+    host: &str,
+    user: &str,
+    creds: Creds,
+) -> Result<()> {
     match creds {
         Creds::Password(pw) => {
             let r = handle.authenticate_password(user, pw.as_str()).await?;
@@ -328,7 +413,9 @@ async fn authenticate(app: &AppHandle, handle: &mut Handle<Client>, host: &str, 
         }
         Creds::Key(key) => {
             let hash = handle.best_supported_rsa_hash().await?.flatten();
-            let r = handle.authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash)).await?;
+            let r = handle
+                .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash))
+                .await?;
             if r.success() {
                 return Ok(());
             }
@@ -348,7 +435,10 @@ async fn authenticate(app: &AppHandle, handle: &mut Handle<Client>, host: &str, 
             let hash = handle.best_supported_rsa_hash().await?.flatten();
             for id in ids {
                 let pk = id.public_key().into_owned();
-                match handle.authenticate_publickey_with(user, pk, hash, &mut agent).await {
+                match handle
+                    .authenticate_publickey_with(user, pk, hash, &mut agent)
+                    .await
+                {
                     Ok(r) if r.success() => return Ok(()),
                     Ok(r) if partial_success(&r) => {
                         if keyboard_interactive(app, handle, host, user, None).await? {
@@ -366,7 +456,9 @@ async fn authenticate(app: &AppHandle, handle: &mut Handle<Client>, host: &str, 
 
 fn client_config(host: &Host) -> Arc<client::Config> {
     Arc::new(client::Config {
-        keepalive_interval: Some(Duration::from_secs(host.keepalive_secs.unwrap_or(30).max(5))),
+        keepalive_interval: Some(Duration::from_secs(
+            host.keepalive_secs.unwrap_or(30).max(5),
+        )),
         keepalive_max: 4,
         inactivity_timeout: None,
         nodelay: true,
@@ -375,7 +467,11 @@ fn client_config(host: &Host) -> Arc<client::Config> {
 }
 
 /// Open a fresh connection to `host_id` (recursively through jump hosts).
-pub fn connect(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future<Output = Result<Arc<SshConn>>> + Send>> {
+pub fn connect(
+    app: AppHandle,
+    host_id: String,
+    depth: u8,
+) -> Pin<Box<dyn Future<Output = Result<Arc<SshConn>>> + Send>> {
     Box::pin(async move {
         if depth > 5 {
             bail!("ProxyJump chain is too deep (loop?)");
@@ -395,41 +491,74 @@ pub fn connect(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future
                 let jump = get_conn(app.clone(), jid.clone(), depth + 1).await?;
                 let ch = jump
                     .handle
-                    .channel_open_direct_tcpip(host.hostname.clone(), host.port as u32, "127.0.0.1", 0)
+                    .channel_open_direct_tcpip(
+                        host.hostname.clone(),
+                        host.port as u32,
+                        "127.0.0.1",
+                        0,
+                    )
                     .await
-                    .with_context(|| format!("opening tunnel to {} via {}", host.hostname, jump.host.name))?;
+                    .with_context(|| {
+                        format!("opening tunnel to {} via {}", host.hostname, jump.host.name)
+                    })?;
                 let h = client::connect_stream(config, ch.into_stream(), handler).await?;
                 (h, Some(jump))
             }
             None => {
                 let addr = (host.hostname.as_str(), host.port);
-                let tcp = tokio::time::timeout(Duration::from_secs(20), tokio::net::TcpStream::connect(addr))
-                    .await
-                    .map_err(|_| anyhow!("timed out connecting to {}:{}", host.hostname, host.port))?
-                    .with_context(|| format!("connecting to {}:{}", host.hostname, host.port))?;
+                let tcp = tokio::time::timeout(
+                    Duration::from_secs(20),
+                    tokio::net::TcpStream::connect(addr),
+                )
+                .await
+                .map_err(|_| anyhow!("timed out connecting to {}:{}", host.hostname, host.port))?
+                .with_context(|| format!("connecting to {}:{}", host.hostname, host.port))?;
                 let _ = tcp.set_nodelay(true);
                 // The handshake may wait on the host-key dialog (up to 180 s), so
                 // its limit must be longer than that.
-                let h = tokio::time::timeout(Duration::from_secs(200), client::connect_stream(config, tcp, handler))
-                    .await
-                    .map_err(|_| anyhow!("SSH handshake with {}:{} timed out", host.hostname, host.port))??;
+                let h = tokio::time::timeout(
+                    Duration::from_secs(200),
+                    client::connect_stream(config, tcp, handler),
+                )
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "SSH handshake with {}:{} timed out",
+                        host.hostname,
+                        host.port
+                    )
+                })??;
                 (h, None)
             }
         };
         authenticate(&app, &mut handle, &host.name, &host.username, creds).await?;
-        Ok(Arc::new(SshConn { handle, host, _jump: jump }))
+        Ok(Arc::new(SshConn {
+            handle,
+            host,
+            _jump: jump,
+        }))
     })
 }
 
 /// Get a pooled connection for the host, connecting if needed.
-pub fn get_conn(app: AppHandle, host_id: String, depth: u8) -> Pin<Box<dyn Future<Output = Result<Arc<SshConn>>> + Send>> {
+pub fn get_conn(
+    app: AppHandle,
+    host_id: String,
+    depth: u8,
+) -> Pin<Box<dyn Future<Output = Result<Arc<SshConn>>> + Send>> {
     Box::pin(get_conn_inner(app, host_id, depth))
 }
 
 async fn get_conn_inner(app: AppHandle, host_id: String, depth: u8) -> Result<Arc<SshConn>> {
     // Serialise connection attempts per host, so a terminal and an SFTP pane
     // opening together share one connection (and one host-key prompt).
-    let gate = app.state::<AppState>().connecting.lock().entry(host_id.clone()).or_default().clone();
+    let gate = app
+        .state::<AppState>()
+        .connecting
+        .lock()
+        .entry(host_id.clone())
+        .or_default()
+        .clone();
     let _connecting = gate.lock().await;
     {
         let state = app.state::<AppState>();
@@ -442,16 +571,24 @@ async fn get_conn_inner(app: AppHandle, host_id: String, depth: u8) -> Result<Ar
     }
     let conn = connect(app.clone(), host_id.clone(), depth).await?;
     let state = app.state::<AppState>();
-    state.conns.lock().await.insert(host_id.clone(), conn.clone());
+    state
+        .conns
+        .lock()
+        .await
+        .insert(host_id.clone(), conn.clone());
     // Start forwards marked auto-start the first time the host connects.
     for f in conn.host.forwards.iter().filter(|f| f.auto_start) {
         if !forward_active(&state, &host_id, &f.id) {
-            let fut: Pin<Box<dyn Future<Output = Result<String>> + Send>> = Box::pin(start_forward(app.clone(), host_id.clone(), f.clone()));
+            let fut: Pin<Box<dyn Future<Output = Result<String>> + Send>> =
+                Box::pin(start_forward(app.clone(), host_id.clone(), f.clone()));
             let app2 = app.clone();
             let name = format!("{}:{}", conn.host.name, f.local_port);
             tokio::spawn(async move {
                 if let Err(e) = fut.await {
-                    let _ = app2.emit("app-error", format!("Auto-start forward {name} failed: {e:#}"));
+                    let _ = app2.emit(
+                        "app-error",
+                        format!("Auto-start forward {name} failed: {e:#}"),
+                    );
                 }
             });
         }
@@ -464,7 +601,11 @@ pub fn forward_task_id(host_id: &str, forward_id: &str) -> String {
 }
 
 pub fn forward_active(state: &AppState, host_id: &str, forward_id: &str) -> bool {
-    state.tasks.lock().get(&forward_task_id(host_id, forward_id)).is_some_and(|h| !h.is_finished())
+    state
+        .tasks
+        .lock()
+        .get(&forward_task_id(host_id, forward_id))
+        .is_some_and(|h| !h.is_finished())
 }
 
 /// (host id, forward id) of every running forward.
@@ -485,7 +626,10 @@ pub async fn disconnect(state: &AppState, host_id: &str) {
     state.sftp.lock().await.remove(host_id);
     state.dockers.lock().await.remove(host_id);
     if let Some(c) = state.conns.lock().await.remove(host_id) {
-        let _ = c.handle.disconnect(russh::Disconnect::ByApplication, "", "en").await;
+        let _ = c
+            .handle
+            .disconnect(russh::Disconnect::ByApplication, "", "en")
+            .await;
     }
 }
 
@@ -494,9 +638,16 @@ pub async fn disconnect(state: &AppState, host_id: &str) {
 pub async fn probe(state: &AppState, host_id: &str) -> bool {
     let conn = state.conns.lock().await.get(host_id).cloned();
     let Some(c) = conn else { return true };
-    let alive = !c.is_closed() && matches!(tokio::time::timeout(Duration::from_secs(5), c.handle.send_ping()).await, Ok(Ok(())));
+    let alive = !c.is_closed()
+        && matches!(
+            tokio::time::timeout(Duration::from_secs(5), c.handle.send_ping()).await,
+            Ok(Ok(()))
+        );
     if !alive {
-        log::info!("ssh connection to {} is not answering; dropping it", c.host.name);
+        log::info!(
+            "ssh connection to {} is not answering; dropping it",
+            c.host.name
+        );
         drop(c);
         disconnect(state, host_id).await;
     }
@@ -506,10 +657,18 @@ pub async fn probe(state: &AppState, host_id: &str) -> bool {
 /// Accept loop shared by saved port forwards and ad-hoc tunnels (databases):
 /// every connection accepted on `listener` is relayed to `rhost:rport` through
 /// the host's pooled SSH connection, reconnecting transparently if it dropped.
-pub(crate) fn spawn_forward_loop(app: AppHandle, host_id: String, listener: tokio::net::TcpListener, rhost: String, rport: u16) -> tokio::task::JoinHandle<()> {
+pub(crate) fn spawn_forward_loop(
+    app: AppHandle,
+    host_id: String,
+    listener: tokio::net::TcpListener,
+    rhost: String,
+    rport: u16,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let Ok((mut sock, peer)) = listener.accept().await else { break };
+            let Ok((mut sock, peer)) = listener.accept().await else {
+                break;
+            };
             let rhost = rhost.clone();
             let app = app.clone();
             let host_id = host_id.clone();
@@ -523,7 +682,12 @@ pub(crate) fn spawn_forward_loop(app: AppHandle, host_id: String, listener: toki
                 };
                 let ch = match conn
                     .handle
-                    .channel_open_direct_tcpip(rhost, rport as u32, peer.ip().to_string(), peer.port() as u32)
+                    .channel_open_direct_tcpip(
+                        rhost,
+                        rport as u32,
+                        peer.ip().to_string(),
+                        peer.port() as u32,
+                    )
                     .await
                 {
                     Ok(c) => c,
@@ -551,14 +715,23 @@ pub async fn start_forward(app: AppHandle, host_id: String, fwd: PortForward) ->
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", fwd.local_port))
         .await
         .with_context(|| format!("port {} is not available on 127.0.0.1", fwd.local_port))?;
-    let h = spawn_forward_loop(app.clone(), host_id.clone(), listener, fwd.remote_host.clone(), fwd.remote_port);
-    app.state::<AppState>().add_task(task_id.clone(), h.abort_handle());
+    let h = spawn_forward_loop(
+        app.clone(),
+        host_id.clone(),
+        listener,
+        fwd.remote_host.clone(),
+        fwd.remote_port,
+    );
+    app.state::<AppState>()
+        .add_task(task_id.clone(), h.abort_handle());
     let _ = app.emit("forwards-changed", ());
     Ok(task_id)
 }
 
 pub fn stop_forward(app: &AppHandle, host_id: &str, forward_id: &str) -> bool {
-    let stopped = app.state::<AppState>().cancel_task(&forward_task_id(host_id, forward_id));
+    let stopped = app
+        .state::<AppState>()
+        .cancel_task(&forward_task_id(host_id, forward_id));
     let _ = app.emit("forwards-changed", ());
     stopped
 }
@@ -574,7 +747,9 @@ mod tests {
         let key = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
         std::fs::write(
             &path,
-            format!("# comment\n[127.0.0.1]:2222 ssh-ed25519 {key}\nexample.com ssh-ed25519 {key}\n"),
+            format!(
+                "# comment\n[127.0.0.1]:2222 ssh-ed25519 {key}\nexample.com ssh-ed25519 {key}\n"
+            ),
         )
         .unwrap();
         forget_known_host("127.0.0.1", 2222, &path).unwrap();

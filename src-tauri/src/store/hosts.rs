@@ -130,14 +130,19 @@ impl HostStore {
         if let Some(d) = self.path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        let f = HostsFile { hosts: self.hosts.clone() };
+        let f = HostsFile {
+            hosts: self.hosts.clone(),
+        };
         crate::paths::write_private(&self.path, &serde_json::to_vec_pretty(&f)?)?;
         Ok(())
     }
 
     pub fn list(&self) -> Vec<Host> {
         let mut v = self.hosts.clone();
-        v.sort_by(|a, b| (a.group.to_lowercase(), a.name.to_lowercase()).cmp(&(b.group.to_lowercase(), b.name.to_lowercase())));
+        v.sort_by(|a, b| {
+            (a.group.to_lowercase(), a.name.to_lowercase())
+                .cmp(&(b.group.to_lowercase(), b.name.to_lowercase()))
+        });
         v
     }
 

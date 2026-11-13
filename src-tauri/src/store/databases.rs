@@ -93,7 +93,9 @@ impl DbStore {
         if let Some(d) = self.path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        let f = DatabasesFile { databases: self.dbs.clone() };
+        let f = DatabasesFile {
+            databases: self.dbs.clone(),
+        };
         crate::paths::write_private(&self.path, &serde_json::to_vec_pretty(&f)?)?;
         Ok(())
     }
@@ -129,7 +131,11 @@ impl DbStore {
             bail!("port is required");
         }
         if db.name.trim().is_empty() {
-            db.name = if db.database.is_empty() { db.host.clone() } else { format!("{}@{}", db.database, db.host) };
+            db.name = if db.database.is_empty() {
+                db.host.clone()
+            } else {
+                format!("{}@{}", db.database, db.host)
+            };
         }
         if db.id.is_empty() {
             db.id = uuid::Uuid::new_v4().to_string();
@@ -224,7 +230,11 @@ mod tests {
         assert_eq!(s2.get(&saved.id).unwrap(), saved);
 
         // Older/minimal files still load.
-        std::fs::write(&path, r#"{"databases":[{"id":"x","name":"n","engine":"postgres","host":"h","port":5432}]}"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"databases":[{"id":"x","name":"n","engine":"postgres","host":"h","port":5432}]}"#,
+        )
+        .unwrap();
         let s3 = DbStore::load(path).unwrap();
         let d = s3.get("x").unwrap();
         assert_eq!(d.ssl_mode, SslMode::Prefer);

@@ -29,7 +29,12 @@ fn need(tool: &str) -> String {
 }
 
 /// Pack `names` (entries of `dir`) into `dir/archive`.
-pub fn compress_command(dir: &str, names: &[String], archive: &str, format: ArchiveFormat) -> Result<String> {
+pub fn compress_command(
+    dir: &str,
+    names: &[String],
+    archive: &str,
+    format: ArchiveFormat,
+) -> Result<String> {
     if names.is_empty() {
         bail!("nothing to compress");
     }
@@ -41,15 +46,27 @@ pub fn compress_command(dir: &str, names: &[String], archive: &str, format: Arch
     let items: Vec<String> = names.iter().map(|n| quote(&format!("./{n}"))).collect();
     let target = quote(&format!("./{archive}"));
     Ok(match format {
-        ArchiveFormat::TarGz => format!("{} && cd {} && tar -czf {target} {}", need("tar"), quote(dir), items.join(" ")),
-        ArchiveFormat::Zip => format!("{} && cd {} && zip -rq {target} {}", need("zip"), quote(dir), items.join(" ")),
+        ArchiveFormat::TarGz => format!(
+            "{} && cd {} && tar -czf {target} {}",
+            need("tar"),
+            quote(dir),
+            items.join(" ")
+        ),
+        ArchiveFormat::Zip => format!(
+            "{} && cd {} && zip -rq {target} {}",
+            need("zip"),
+            quote(dir),
+            items.join(" ")
+        ),
     })
 }
 
 /// The folder an archive extracts into: its name without the archive extension.
 pub fn extract_folder(archive_path: &str) -> String {
     let lower = archive_path.to_lowercase();
-    for ext in [".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tgz", ".txz", ".tbz2", ".tar", ".zip"] {
+    for ext in [
+        ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tgz", ".txz", ".tbz2", ".tar", ".zip",
+    ] {
         if lower.ends_with(ext) {
             return archive_path[..archive_path.len() - ext.len()].to_string();
         }
@@ -62,7 +79,11 @@ pub fn extract_command(archive_path: &str, dest: &str, overwrite: bool) -> Resul
     let lower = archive_path.to_lowercase();
     let (a, d) = (quote(archive_path), quote(dest));
     let unpack = if lower.ends_with(".zip") {
-        format!("{} && unzip -q{} {a} -d {d}", need("unzip"), if overwrite { "o" } else { "n" })
+        format!(
+            "{} && unzip -q{} {a} -d {d}",
+            need("unzip"),
+            if overwrite { "o" } else { "n" }
+        )
     } else {
         let flag = if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
             "-xzf"
@@ -75,11 +96,17 @@ pub fn extract_command(archive_path: &str, dest: &str, overwrite: bool) -> Resul
         } else if lower.ends_with(".tar") {
             "-xf"
         } else {
-            bail!("Shellport can extract .tar, .tar.gz, .tar.xz, .tar.bz2, .tar.zst and .zip files");
+            bail!(
+                "Shellport can extract .tar, .tar.gz, .tar.xz, .tar.bz2, .tar.zst and .zip files"
+            );
         };
         format!("{} && tar {flag} {a} -C {d}", need("tar"))
     };
-    let mkdir = if overwrite { format!("mkdir -p {d}") } else { format!("mkdir {d}") };
+    let mkdir = if overwrite {
+        format!("mkdir -p {d}")
+    } else {
+        format!("mkdir {d}")
+    };
     Ok(format!("{mkdir} && {unpack}"))
 }
 
@@ -89,8 +116,17 @@ mod tests {
 
     #[test]
     fn builds_quoted_commands() {
-        let c = compress_command("/srv/my app", &["a b".into(), "-rf".into(), "$(id)".into()], "out.tar.gz", ArchiveFormat::TarGz).unwrap();
-        assert!(c.contains("cd '/srv/my app' && tar -czf './out.tar.gz' './a b' './-rf' './$(id)'"), "{c}");
+        let c = compress_command(
+            "/srv/my app",
+            &["a b".into(), "-rf".into(), "$(id)".into()],
+            "out.tar.gz",
+            ArchiveFormat::TarGz,
+        )
+        .unwrap();
+        assert!(
+            c.contains("cd '/srv/my app' && tar -czf './out.tar.gz' './a b' './-rf' './$(id)'"),
+            "{c}"
+        );
         let z = compress_command("/x", &["it's".into()], "o.zip", ArchiveFormat::Zip).unwrap();
         assert!(z.ends_with(r"zip -rq './o.zip' './it'\''s'"), "{z}");
         assert!(compress_command("/x", &["../etc".into()], "o.zip", ArchiveFormat::Zip).is_err());
@@ -106,27 +142,57 @@ mod tests {
         let c = extract_command("/srv/a b.tgz", "/srv/a b", false).unwrap();
         assert!(c.starts_with("mkdir '/srv/a b' && "), "{c}");
         assert!(c.ends_with("tar -xzf '/srv/a b.tgz' -C '/srv/a b'"), "{c}");
-        assert!(extract_command("/srv/x.zip", "/srv/x", true).unwrap().contains("unzip -qo '/srv/x.zip' -d '/srv/x'"));
+        assert!(extract_command("/srv/x.zip", "/srv/x", true)
+            .unwrap()
+            .contains("unzip -qo '/srv/x.zip' -d '/srv/x'"));
         assert!(extract_command("/srv/x.7z", "/srv/x", false).is_err());
     }
 
     /// The commands do what they say in a real shell, with awkward names.
     #[test]
     fn round_trip_locally() {
-        if std::process::Command::new("tar").arg("--version").output().is_err() {
+        if std::process::Command::new("tar")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         std::fs::create_dir(d.join("-odd dir")).unwrap();
         std::fs::write(d.join("-odd dir/it's.txt"), "hi").unwrap();
-        let sh = |c: &str| assert!(std::process::Command::new("sh").arg("-c").arg(c).status().unwrap().success(), "{c}");
-        sh(&compress_command(d.to_str().unwrap(), &["-odd dir".into()], "pack.tar.gz", ArchiveFormat::TarGz).unwrap());
+        let sh = |c: &str| {
+            assert!(
+                std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(c)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "{c}"
+            )
+        };
+        sh(&compress_command(
+            d.to_str().unwrap(),
+            &["-odd dir".into()],
+            "pack.tar.gz",
+            ArchiveFormat::TarGz,
+        )
+        .unwrap());
         let archive = d.join("pack.tar.gz").to_string_lossy().into_owned();
         let dest = extract_folder(&archive);
         sh(&extract_command(&archive, &dest, false).unwrap());
-        assert_eq!(std::fs::read_to_string(format!("{dest}/-odd dir/it's.txt")).unwrap(), "hi");
+        assert_eq!(
+            std::fs::read_to_string(format!("{dest}/-odd dir/it's.txt")).unwrap(),
+            "hi"
+        );
         // Extracting again without overwrite refuses: the folder exists.
-        assert!(!std::process::Command::new("sh").arg("-c").arg(extract_command(&archive, &dest, false).unwrap()).status().unwrap().success());
+        assert!(!std::process::Command::new("sh")
+            .arg("-c")
+            .arg(extract_command(&archive, &dest, false).unwrap())
+            .status()
+            .unwrap()
+            .success());
     }
 }

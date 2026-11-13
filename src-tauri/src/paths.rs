@@ -51,7 +51,10 @@ pub fn expand_tilde(p: &str) -> PathBuf {
 pub fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let base = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let tmp = dir.join(format!(".{base}.{}.tmp", uuid::Uuid::new_v4().simple()));
     let res = (|| {
         let mut opts = std::fs::OpenOptions::new();
@@ -95,9 +98,21 @@ mod tests {
         std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o644)).unwrap();
         super::write_private(&target, b"new").unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"new");
-        assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         // No leftover temp files of ours.
-        let n = std::fs::read_dir(dir.path()).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().ends_with(".tmp")).count();
+        let n = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")
+            })
+            .count();
         assert_eq!(n, 1, "only the stale one remains");
     }
 }
