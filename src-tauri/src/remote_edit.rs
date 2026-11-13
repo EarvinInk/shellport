@@ -48,7 +48,10 @@ fn changed(expected: (u64, Option<u64>), now: (u64, Option<u64>)) -> bool {
 }
 
 pub async fn read_text(s: &SftpSession, path: &str) -> Result<TextFile> {
-    let m = s.metadata(path).await.with_context(|| format!("reading {path}"))?;
+    let m = s
+        .metadata(path)
+        .await
+        .with_context(|| format!("reading {path}"))?;
     if m.is_dir() {
         bail!("{path} is a folder");
     }
@@ -56,14 +59,26 @@ pub async fn read_text(s: &SftpSession, path: &str) -> Result<TextFile> {
     if size > MAX_EDIT {
         bail!("{path} is {:.1} MB; the editor opens files up to {} MB. Download it or use Open in my editor instead", size as f64 / 1e6, MAX_EDIT / 1_000_000);
     }
-    let mut f = s.open(path).await.with_context(|| format!("opening {path}"))?;
+    let mut f = s
+        .open(path)
+        .await
+        .with_context(|| format!("opening {path}"))?;
     let mut bytes = Vec::with_capacity(size as usize);
-    (&mut f).take(MAX_EDIT + 1).read_to_end(&mut bytes).await.with_context(|| format!("reading {path}"))?;
+    (&mut f)
+        .take(MAX_EDIT + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .with_context(|| format!("reading {path}"))?;
     if bytes.len() as u64 > MAX_EDIT {
         bail!("{path} grew past {} MB while reading", MAX_EDIT / 1_000_000);
     }
     let (text, read_only) = decode(bytes)?;
-    Ok(TextFile { text, size, mtime: m.mtime.map(u64::from), read_only })
+    Ok(TextFile {
+        text,
+        size,
+        mtime: m.mtime.map(u64::from),
+        read_only,
+    })
 }
 
 fn dir_and_name(path: &str) -> (&str, &str) {
@@ -79,20 +94,39 @@ async fn stat(s: &SftpSession, path: &str) -> Option<FileAttributes> {
 }
 
 async fn write_all(s: &SftpSession, path: &str, flags: OpenFlags, data: &[u8]) -> Result<()> {
-    let mut f = s.open_with_flags(path, flags).await.with_context(|| format!("writing {path}"))?;
-    f.write_all(data).await.with_context(|| format!("writing {path}"))?;
-    f.shutdown().await.with_context(|| format!("writing {path}"))?;
+    let mut f = s
+        .open_with_flags(path, flags)
+        .await
+        .with_context(|| format!("writing {path}"))?;
+    f.write_all(data)
+        .await
+        .with_context(|| format!("writing {path}"))?;
+    f.shutdown()
+        .await
+        .with_context(|| format!("writing {path}"))?;
     Ok(())
 }
 
 /// Save `text` to `path` (see [`write_bytes`]).
-pub async fn write_text(s: &SftpSession, path: &str, text: &str, expected: Option<(u64, Option<u64>)>, force: bool) -> Result<Saved> {
+pub async fn write_text(
+    s: &SftpSession,
+    path: &str,
+    text: &str,
+    expected: Option<(u64, Option<u64>)>,
+    force: bool,
+) -> Result<Saved> {
     write_bytes(s, path, text.as_bytes(), expected, force).await
 }
 
 /// Save `data` to `path`. Unless `force`, refuses when the file's size or
 /// modified time differ from `expected` (someone else changed it).
-pub async fn write_bytes(s: &SftpSession, path: &str, data: &[u8], expected: Option<(u64, Option<u64>)>, force: bool) -> Result<Saved> {
+pub async fn write_bytes(
+    s: &SftpSession,
+    path: &str,
+    data: &[u8],
+    expected: Option<(u64, Option<u64>)>,
+    force: bool,
+) -> Result<Saved> {
     let current = stat(s, path).await;
     if let (Some(exp), Some(cur), false) = (expected, &current, force) {
         let now = (cur.size.unwrap_or(0), cur.mtime.map(u64::from));
@@ -100,7 +134,11 @@ pub async fn write_bytes(s: &SftpSession, path: &str, data: &[u8], expected: Opt
             bail!("{CHANGED_PREFIX} {path} was modified on the server after you opened it");
         }
     }
-    let is_link = s.symlink_metadata(path).await.map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    let is_link = s
+        .symlink_metadata(path)
+        .await
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
     let (dir, name) = dir_and_name(path);
     let tmp = format!("{}/.{name}.shellport-tmp", dir.trim_end_matches('/'));
     let old = format!("{}/.{name}.shellport-old", dir.trim_end_matches('/'));
@@ -109,7 +147,15 @@ pub async fn write_bytes(s: &SftpSession, path: &str, data: &[u8], expected: Opt
     // keeps the file as it was: not through a symlink, and owned by us.
     let mut swapped = false;
     if let (Some(cur), false) = (&current, is_link) {
-        if write_all(s, &tmp, OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE, data).await.is_ok() {
+        if write_all(
+            s,
+            &tmp,
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+            data,
+        )
+        .await
+        .is_ok()
+        {
             let mine = stat(s, &tmp).await.and_then(|t| t.uid) == cur.uid;
             if mine {
                 let mut attrs = FileAttributes::empty();
@@ -122,7 +168,9 @@ pub async fn write_bytes(s: &SftpSession, path: &str, data: &[u8], expected: Opt
                         swapped = true;
                     } else {
                         // Put the original back; the save then happens in place below.
-                        s.rename(old.as_str(), path).await.with_context(|| format!("the original is safe at {old}, but couldn't be moved back"))?;
+                        s.rename(old.as_str(), path).await.with_context(|| {
+                            format!("the original is safe at {old}, but couldn't be moved back")
+                        })?;
                     }
                 }
             }
@@ -134,10 +182,21 @@ pub async fn write_bytes(s: &SftpSession, path: &str, data: &[u8], expected: Opt
     if !swapped {
         // New files, symlinks, files owned by someone else, or a folder we
         // can't write to: write the file itself.
-        write_all(s, path, OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE, data).await?;
+        write_all(
+            s,
+            path,
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+            data,
+        )
+        .await?;
     }
-    let after = stat(s, path).await.context("saved, but couldn't read the file's new size")?;
-    Ok(Saved { size: after.size.unwrap_or(0), mtime: after.mtime.map(u64::from) })
+    let after = stat(s, path)
+        .await
+        .context("saved, but couldn't read the file's new size")?;
+    Ok(Saved {
+        size: after.size.unwrap_or(0),
+        mtime: after.mtime.map(u64::from),
+    })
 }
 
 #[cfg(test)]
@@ -146,7 +205,10 @@ mod tests {
 
     #[test]
     fn binary_and_encoding() {
-        assert_eq!(decode(b"hello\n".to_vec()).unwrap(), ("hello\n".into(), false));
+        assert_eq!(
+            decode(b"hello\n".to_vec()).unwrap(),
+            ("hello\n".into(), false)
+        );
         assert!(decode(b"ELF\0\x01\x02".to_vec()).is_err());
         // Latin-1 text: opens, but read-only.
         let (t, ro) = decode(b"caf\xe9".to_vec()).unwrap();

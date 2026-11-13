@@ -30,8 +30,16 @@ pub async fn session(app: &AppHandle, host_id: &str) -> Result<Arc<SftpSession>>
     let conn = crate::ssh::get_conn(app.clone(), host_id.to_string(), 0).await?;
     let ch = conn.handle.channel_open_session().await?;
     ch.request_subsystem(true, "sftp").await?;
-    let s = Arc::new(SftpSession::new(ch.into_stream()).await.context("starting SFTP subsystem")?);
-    state.sftp.lock().await.insert(host_id.to_string(), s.clone());
+    let s = Arc::new(
+        SftpSession::new(ch.into_stream())
+            .await
+            .context("starting SFTP subsystem")?,
+    );
+    state
+        .sftp
+        .lock()
+        .await
+        .insert(host_id.to_string(), s.clone());
     Ok(s)
 }
 
@@ -53,14 +61,23 @@ pub(crate) fn join(dir: &str, name: &str) -> String {
 }
 
 fn sort(v: &mut [FileEntry]) {
-    v.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    v.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
 }
 
 pub async fn home(app: &AppHandle, host_id: &str) -> Result<String> {
     Ok(session(app, host_id).await?.canonicalize(".").await?)
 }
 
-pub async fn list(app: &AppHandle, host_id: &str, path: &str, sudo: bool) -> Result<Vec<FileEntry>> {
+pub async fn list(
+    app: &AppHandle,
+    host_id: &str,
+    path: &str,
+    sudo: bool,
+) -> Result<Vec<FileEntry>> {
     let s = session_as(app, host_id, sudo).await?;
     let dir = s.canonicalize(path).await?;
     let mut v = Vec::new();
@@ -110,7 +127,11 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
             is_dir: meta.is_dir(),
             is_symlink: lmeta.file_type().is_symlink(),
             size: meta.len(),
-            mtime: meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()),
+            mtime: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
             permissions: perms,
         });
     }
@@ -119,16 +140,34 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
 }
 
 pub async fn mkdir(app: &AppHandle, host_id: &str, path: &str, sudo: bool) -> Result<()> {
-    session_as(app, host_id, sudo).await?.create_dir(path).await?;
+    session_as(app, host_id, sudo)
+        .await?
+        .create_dir(path)
+        .await?;
     Ok(())
 }
 
-pub async fn rename(app: &AppHandle, host_id: &str, from: &str, to: &str, sudo: bool) -> Result<()> {
-    session_as(app, host_id, sudo).await?.rename(from, to).await?;
+pub async fn rename(
+    app: &AppHandle,
+    host_id: &str,
+    from: &str,
+    to: &str,
+    sudo: bool,
+) -> Result<()> {
+    session_as(app, host_id, sudo)
+        .await?
+        .rename(from, to)
+        .await?;
     Ok(())
 }
 
-pub async fn chmod(app: &AppHandle, host_id: &str, path: &str, mode: u32, sudo: bool) -> Result<()> {
+pub async fn chmod(
+    app: &AppHandle,
+    host_id: &str,
+    path: &str,
+    mode: u32,
+    sudo: bool,
+) -> Result<()> {
     let s = session_as(app, host_id, sudo).await?;
     let mut attrs = russh_sftp::protocol::FileAttributes::empty();
     attrs.permissions = Some(mode & 0o7777);
@@ -144,7 +183,10 @@ pub async fn remove(app: &AppHandle, host_id: &str, path: &str, sudo: bool) -> R
     remove_rec(&s, path.to_string()).await
 }
 
-fn remove_rec(s: &SftpSession, path: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
+fn remove_rec(
+    s: &SftpSession,
+    path: String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
     Box::pin(async move {
         let m = s.symlink_metadata(&path).await?;
         if m.is_dir() {
@@ -180,7 +222,9 @@ pub fn safe_component(name: &str) -> Result<&str> {
 
 /// Refuse to write through a symlink anywhere between `base` and `path`.
 pub(crate) fn check_no_symlinks(base: &Path, path: &Path) -> Result<()> {
-    let rel = path.strip_prefix(base).context("download path escaped the target folder")?;
+    let rel = path
+        .strip_prefix(base)
+        .context("download path escaped the target folder")?;
     let mut cur = base.to_path_buf();
     for c in rel.components() {
         match c {
@@ -236,7 +280,10 @@ mod tests {
         std::os::unix::fs::symlink(&outside, base.join("link")).unwrap();
         assert!(check_no_symlinks(&base, &base.join("link/f")).is_err());
         std::os::unix::fs::symlink(outside.join("t"), base.join("flink")).unwrap();
-        assert!(open_local_dst(&base.join("flink"), true).is_err(), "followed a file symlink");
+        assert!(
+            open_local_dst(&base.join("flink"), true).is_err(),
+            "followed a file symlink"
+        );
         assert!(!outside.join("t").exists());
     }
 }

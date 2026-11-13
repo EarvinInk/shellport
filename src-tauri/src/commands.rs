@@ -20,7 +20,11 @@ use tauri::{AppHandle, Manager, State};
 
 fn status(state: &AppState) -> VaultStatus {
     let v = state.vault.lock();
-    VaultStatus { exists: v.exists(), unlocked: v.is_unlocked(), remembered: vault::keyring::is_stored() }
+    VaultStatus {
+        exists: v.exists(),
+        unlocked: v.is_unlocked(),
+        remembered: vault::keyring::is_stored(),
+    }
 }
 
 #[tauri::command]
@@ -29,7 +33,11 @@ pub fn vault_status(state: State<'_, AppState>) -> VaultStatus {
 }
 
 #[tauri::command]
-pub async fn vault_create(state: State<'_, AppState>, password: String, remember: bool) -> CmdResult<VaultStatus> {
+pub async fn vault_create(
+    state: State<'_, AppState>,
+    password: String,
+    remember: bool,
+) -> CmdResult<VaultStatus> {
     {
         let mut v = state.vault.lock();
         v.create(&password, vault::KdfParams::default())?;
@@ -44,7 +52,11 @@ pub async fn vault_create(state: State<'_, AppState>, password: String, remember
 }
 
 #[tauri::command]
-pub async fn vault_unlock(state: State<'_, AppState>, password: String, remember: bool) -> CmdResult<VaultStatus> {
+pub async fn vault_unlock(
+    state: State<'_, AppState>,
+    password: String,
+    remember: bool,
+) -> CmdResult<VaultStatus> {
     // Argon2 is deliberately slow; derive the key off the async runtime.
     let path = state.vault.lock().path().to_path_buf();
     let (tmp, key) = tokio::task::spawn_blocking(move || {
@@ -91,7 +103,11 @@ pub fn vault_forget_device(state: State<'_, AppState>) -> CmdResult<VaultStatus>
 }
 
 #[tauri::command]
-pub async fn vault_change_password(state: State<'_, AppState>, old: String, new: String) -> CmdResult<()> {
+pub async fn vault_change_password(
+    state: State<'_, AppState>,
+    old: String,
+    new: String,
+) -> CmdResult<()> {
     let key = state.vault.lock().change_password(&old, &new)?;
     if vault::keyring::is_stored() {
         vault::keyring::store(&key)?;
@@ -133,11 +149,16 @@ pub fn secret_reveal(state: State<'_, AppState>, id: String) -> CmdResult<Reveal
     {
         let now = std::time::Instant::now();
         let mut r = state.reveals.lock();
-        while r.front().is_some_and(|t| now.duration_since(*t) > std::time::Duration::from_secs(60)) {
+        while r
+            .front()
+            .is_some_and(|t| now.duration_since(*t) > std::time::Duration::from_secs(60))
+        {
             r.pop_front();
         }
         if r.len() >= REVEALS_PER_MINUTE {
-            return Err(anyhow!("too many secrets revealed in the last minute; try again shortly").into());
+            return Err(
+                anyhow!("too many secrets revealed in the last minute; try again shortly").into(),
+            );
         }
         r.push_back(now);
     }
@@ -160,9 +181,13 @@ pub fn secret_public_key(state: State<'_, AppState>, id: String) -> CmdResult<St
 pub fn secret_generate_key(state: State<'_, AppState>, name: String) -> CmdResult<SecretMeta> {
     let mut seed = zeroize::Zeroizing::new([0u8; 32]);
     rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, seed.as_mut());
-    let mut key = russh::keys::PrivateKey::from(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&seed));
+    let mut key = russh::keys::PrivateKey::from(
+        russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&seed),
+    );
     key.set_comment(format!("shellport:{name}"));
-    let pem = key.to_openssh(russh::keys::ssh_key::LineEnding::LF).map_err(|e| anyhow!("{e}"))?;
+    let pem = key
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .map_err(|e| anyhow!("{e}"))?;
     Ok(state.vault.lock().upsert(SecretInput {
         id: None,
         name,
@@ -200,9 +225,15 @@ pub fn host_save(state: State<'_, AppState>, host: Host) -> CmdResult<Host> {
     let saved = store.upsert(host)?;
     // Linked hosts are written back to ~/.ssh/config, keeping the rest of the file.
     if saved.ssh_config_alias.is_some() {
-        let jump_alias = saved.jump_host_id.as_deref().and_then(|j| store.get(j).ok()).and_then(|j| j.ssh_config_alias);
+        let jump_alias = saved
+            .jump_host_id
+            .as_deref()
+            .and_then(|j| store.get(j).ok())
+            .and_then(|j| j.ssh_config_alias);
         ssh_config::write_linked(&ssh_config::default_path(), &saved, jump_alias.as_deref())
-            .map_err(|e| anyhow!("saved in Shellport, but ~/.ssh/config could not be updated: {e:#}"))?;
+            .map_err(|e| {
+                anyhow!("saved in Shellport, but ~/.ssh/config could not be updated: {e:#}")
+            })?;
     }
     Ok(saved)
 }
@@ -224,7 +255,11 @@ pub async fn hosts_status(state: State<'_, AppState>) -> CmdResult<Vec<HostStatu
         let (addr, port) = (h.hostname.clone(), h.port);
         async move {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
-            let Ok(Ok(mut s)) = tokio::time::timeout(std::time::Duration::from_secs(3), tokio::net::TcpStream::connect((addr.as_str(), port))).await
+            let Ok(Ok(mut s)) = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                tokio::net::TcpStream::connect((addr.as_str(), port)),
+            )
+            .await
             else {
                 return false;
             };
@@ -237,7 +272,11 @@ pub async fn hosts_status(state: State<'_, AppState>) -> CmdResult<Vec<HostStatu
         }
     }))
     .await;
-    let by_id: std::collections::HashMap<&str, bool> = hosts.iter().zip(&direct).map(|(h, up)| (h.id.as_str(), *up)).collect();
+    let by_id: std::collections::HashMap<&str, bool> = hosts
+        .iter()
+        .zip(&direct)
+        .map(|(h, up)| (h.id.as_str(), *up))
+        .collect();
     Ok(hosts
         .iter()
         .zip(&direct)
@@ -245,7 +284,11 @@ pub async fn hosts_status(state: State<'_, AppState>) -> CmdResult<Vec<HostStatu
             id: h.id.clone(),
             up: match &h.jump_host_id {
                 None => Some(*up),
-                Some(j) => by_id.get(j.as_str()).copied().filter(|j_up| !j_up).map(|_| false),
+                Some(j) => by_id
+                    .get(j.as_str())
+                    .copied()
+                    .filter(|j_up| !j_up)
+                    .map(|_| false),
             },
         })
         .collect())
@@ -259,7 +302,12 @@ pub fn db_parse_url(url: String) -> CmdResult<crate::store::address::DbUrl> {
 
 /// Save text (e.g. a terminal's output) to a file the user picks.
 #[tauri::command]
-pub async fn text_save(app: AppHandle, title: String, file_name: String, text: String) -> CmdResult<Option<String>> {
+pub async fn text_save(
+    app: AppHandle,
+    title: String,
+    file_name: String,
+    text: String,
+) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
@@ -270,15 +318,23 @@ pub async fn text_save(app: AppHandle, title: String, file_name: String, text: S
         .save_file(move |p| {
             let _ = tx.send(p);
         });
-    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| anyhow!("unsupported file location: {e}"))?;
     crate::paths::write_private(&path, text.as_bytes())?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// Export hosts (no secrets) as JSON or CSV to a file the user picks.
 #[tauri::command]
-pub async fn hosts_export(app: AppHandle, state: State<'_, AppState>, format: String) -> CmdResult<Option<String>> {
+pub async fn hosts_export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    format: String,
+) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let hosts = state.hosts.lock().list();
     let (text, ext) = match format.as_str() {
@@ -294,8 +350,12 @@ pub async fn hosts_export(app: AppHandle, state: State<'_, AppState>, format: St
         .save_file(move |p| {
             let _ = tx.send(p);
         });
-    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| anyhow!("unsupported file location: {e}"))?;
     crate::paths::write_private(&path, text.as_bytes())?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
@@ -317,9 +377,18 @@ fn read_host_file(state: &AppState, path: &str) -> anyhow::Result<crate::store::
 }
 
 #[tauri::command]
-pub fn hosts_import_preview(state: State<'_, AppState>, path: String) -> CmdResult<HostImportPreview> {
+pub fn hosts_import_preview(
+    state: State<'_, AppState>,
+    path: String,
+) -> CmdResult<HostImportPreview> {
     let imp = read_host_file(&state, &path)?;
-    let have: Vec<String> = state.hosts.lock().list().into_iter().map(|h| h.name).collect();
+    let have: Vec<String> = state
+        .hosts
+        .lock()
+        .list()
+        .into_iter()
+        .map(|h| h.name)
+        .collect();
     let names: Vec<String> = imp.hosts.iter().map(|h| h.name.clone()).collect();
     let existing = names.iter().filter(|n| have.contains(n)).cloned().collect();
     Ok(HostImportPreview { names, existing })
@@ -331,13 +400,19 @@ pub fn hosts_import_preview(state: State<'_, AppState>, path: String) -> CmdResu
 pub fn hosts_import_file(state: State<'_, AppState>, path: String) -> CmdResult<usize> {
     let imp = read_host_file(&state, &path)?;
     let mut store = state.hosts.lock();
-    let jumps: Vec<(String, String)> = imp.hosts.iter().zip(&imp.jumps).filter_map(|(h, j)| j.clone().map(|j| (h.name.clone(), j))).collect();
+    let jumps: Vec<(String, String)> = imp
+        .hosts
+        .iter()
+        .zip(&imp.jumps)
+        .filter_map(|(h, j)| j.clone().map(|j| (h.name.clone(), j)))
+        .collect();
     let n = store.import(imp.hosts)?;
     let all = store.list();
     let id_of = |name: &str| all.iter().find(|h| h.name == name).map(|h| h.id.clone());
     let mut changed = Vec::new();
     for (name, jump) in jumps {
-        if let (Some(mut h), Some(j)) = (all.iter().find(|h| h.name == name).cloned(), id_of(&jump)) {
+        if let (Some(mut h), Some(j)) = (all.iter().find(|h| h.name == name).cloned(), id_of(&jump))
+        {
             if h.jump_host_id.is_none() && h.id != j {
                 h.jump_host_id = Some(j);
                 changed.push(h);
@@ -376,12 +451,19 @@ fn ssh_config_path(state: &AppState, path: Option<String>) -> anyhow::Result<std
 }
 
 #[tauri::command]
-pub fn ssh_config_preview(state: State<'_, AppState>, path: Option<String>) -> CmdResult<Vec<SshConfigEntry>> {
+pub fn ssh_config_preview(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> CmdResult<Vec<SshConfigEntry>> {
     Ok(ssh_config::parse_file(&ssh_config_path(&state, path)?))
 }
 
 #[tauri::command]
-pub fn ssh_config_import(state: State<'_, AppState>, path: Option<String>, aliases: Vec<String>) -> CmdResult<usize> {
+pub fn ssh_config_import(
+    state: State<'_, AppState>,
+    path: Option<String>,
+    aliases: Vec<String>,
+) -> CmdResult<usize> {
     let p = ssh_config_path(&state, path)?;
     let entries = ssh_config::parse_file(&p);
     // Hosts imported from ~/.ssh/config stay linked to it; from another file
@@ -390,7 +472,10 @@ pub fn ssh_config_import(state: State<'_, AppState>, path: Option<String>, alias
     let hosts: Vec<Host> = ssh_config::to_hosts(&entries)
         .into_iter()
         .filter(|h| aliases.contains(&h.name))
-        .map(|h| Host { ssh_config_alias: h.ssh_config_alias.filter(|_| linked), ..h })
+        .map(|h| Host {
+            ssh_config_alias: h.ssh_config_alias.filter(|_| linked),
+            ..h
+        })
         .collect();
     Ok(state.hosts.lock().import(hosts)?)
 }
@@ -404,13 +489,23 @@ pub async fn host_disconnect(state: State<'_, AppState>, id: String) -> CmdResul
 #[tauri::command]
 pub async fn host_test(app: AppHandle, id: String) -> CmdResult<String> {
     let conn = crate::ssh::connect(app, id, 0).await?;
-    let out = conn.exec_capture("uname -srm; uptime").await.unwrap_or_default();
-    let _ = conn.handle.disconnect(russh::Disconnect::ByApplication, "", "en").await;
+    let out = conn
+        .exec_capture("uname -srm; uptime")
+        .await
+        .unwrap_or_default();
+    let _ = conn
+        .handle
+        .disconnect(russh::Disconnect::ByApplication, "", "en")
+        .await;
     Ok(out.trim().to_string())
 }
 
 #[tauri::command]
-pub fn hostkey_respond(state: State<'_, AppState>, request_id: String, decision: crate::ssh::HostKeyDecision) {
+pub fn hostkey_respond(
+    state: State<'_, AppState>,
+    request_id: String,
+    decision: crate::ssh::HostKeyDecision,
+) {
     if let Some(tx) = state.hostkey_pending.lock().remove(&request_id) {
         let _ = tx.send(decision);
     }
@@ -418,7 +513,11 @@ pub fn hostkey_respond(state: State<'_, AppState>, request_id: String, decision:
 
 /// Answers for a keyboard-interactive (2FA) prompt; `None` cancels the login.
 #[tauri::command]
-pub fn auth_prompt_respond(state: State<'_, AppState>, request_id: String, answers: Option<Vec<String>>) {
+pub fn auth_prompt_respond(
+    state: State<'_, AppState>,
+    request_id: String,
+    answers: Option<Vec<String>>,
+) {
     if let Some(tx) = state.auth_pending.lock().remove(&request_id) {
         let _ = tx.send(answers);
     }
@@ -435,7 +534,10 @@ pub struct ActiveForward {
 pub fn forwards_active(state: State<'_, AppState>) -> Vec<ActiveForward> {
     crate::ssh::active_forwards(&state)
         .into_iter()
-        .map(|(host_id, forward_id)| ActiveForward { host_id, forward_id })
+        .map(|(host_id, forward_id)| ActiveForward {
+            host_id,
+            forward_id,
+        })
         .collect()
 }
 
@@ -445,9 +547,18 @@ pub fn forward_stop(app: AppHandle, host_id: String, forward_id: String) -> bool
 }
 
 #[tauri::command]
-pub async fn forward_start(app: AppHandle, state: State<'_, AppState>, host_id: String, forward_id: String) -> CmdResult<String> {
+pub async fn forward_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    host_id: String,
+    forward_id: String,
+) -> CmdResult<String> {
     let host = state.hosts.lock().get(&host_id)?;
-    let fwd = host.forwards.into_iter().find(|f| f.id == forward_id).ok_or_else(|| anyhow!("forward not found"))?;
+    let fwd = host
+        .forwards
+        .into_iter()
+        .find(|f| f.id == forward_id)
+        .ok_or_else(|| anyhow!("forward not found"))?;
     Ok(crate::ssh::start_forward(app, host_id, fwd).await?)
 }
 
@@ -458,7 +569,13 @@ pub fn task_cancel(state: State<'_, AppState>, task_id: String) -> bool {
 
 #[tauri::command]
 pub fn tasks_active(state: State<'_, AppState>) -> Vec<String> {
-    state.tasks.lock().iter().filter(|(_, h)| !h.is_finished()).map(|(k, _)| k.clone()).collect()
+    state
+        .tasks
+        .lock()
+        .iter()
+        .filter(|(_, h)| !h.is_finished())
+        .map(|(k, _)| k.clone())
+        .collect()
 }
 
 // ---------- databases ----------
@@ -480,7 +597,14 @@ pub fn db_save(state: State<'_, AppState>, db: DbProfile) -> CmdResult<DbProfile
 
 #[tauri::command]
 pub async fn db_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    let open: Vec<String> = state.db_sessions.lock().await.iter().filter(|(_, o)| o.profile_id == id).map(|(k, _)| k.clone()).collect();
+    let open: Vec<String> = state
+        .db_sessions
+        .lock()
+        .await
+        .iter()
+        .filter(|(_, o)| o.profile_id == id)
+        .map(|(k, _)| k.clone())
+        .collect();
     for sid in open {
         crate::db::session::close(&state, &sid).await;
     }
@@ -489,7 +613,11 @@ pub async fn db_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> 
 
 /// Connect with a (possibly unsaved) profile, report the server version, disconnect.
 #[tauri::command]
-pub async fn db_test(app: AppHandle, state: State<'_, AppState>, db: DbProfile) -> CmdResult<String> {
+pub async fn db_test(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    db: DbProfile,
+) -> CmdResult<String> {
     let sid = format!("test-{}", uuid::Uuid::new_v4());
     let (session, tunnel) = crate::db::session::open(&app, &db, &sid).await?;
     let version = session.server_version();
@@ -511,20 +639,38 @@ pub struct DbConnected {
 }
 
 #[tauri::command]
-pub async fn db_connect(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<DbConnected> {
+pub async fn db_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<DbConnected> {
     let db = state.dbs.lock().get(&id)?;
     let session_id = uuid::Uuid::new_v4().to_string();
-    let host_production = db.via_host_id.as_deref().and_then(|h| state.hosts.lock().get(h).ok()).is_some_and(|h| h.production);
+    let host_production = db
+        .via_host_id
+        .as_deref()
+        .and_then(|h| state.hosts.lock().get(h).ok())
+        .is_some_and(|h| h.production);
     let safety = db.effective_safety(host_production);
     let production = db.production || host_production;
     let (session, tunnel_task) = crate::db::session::open(&app, &db, &session_id).await?;
     let server_version = session.server_version();
-    state
-        .db_sessions
-        .lock()
-        .await
-        .insert(session_id.clone(), crate::db::session::OpenDb { session, profile_id: id, tunnel_task, safety });
-    Ok(DbConnected { session_id, server_version, engine: db.engine, safety, production })
+    state.db_sessions.lock().await.insert(
+        session_id.clone(),
+        crate::db::session::OpenDb {
+            session,
+            profile_id: id,
+            tunnel_task,
+            safety,
+        },
+    );
+    Ok(DbConnected {
+        session_id,
+        server_version,
+        engine: db.engine,
+        safety,
+        production,
+    })
 }
 
 #[tauri::command]
@@ -534,9 +680,15 @@ pub async fn db_disconnect(state: State<'_, AppState>, session_id: String) -> Cm
 }
 
 #[tauri::command]
-pub async fn db_children(state: State<'_, AppState>, session_id: String, path: Vec<String>) -> CmdResult<Vec<crate::db::SchemaNode>> {
+pub async fn db_children(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: Vec<String>,
+) -> CmdResult<Vec<crate::db::SchemaNode>> {
     let (s, _, _) = crate::db::session::get(&state, &session_id).await?;
-    Ok(s.children(&path).await.map_err(|e| crate::db::session::map_lost(s.as_ref(), e))?)
+    Ok(s.children(&path)
+        .await
+        .map_err(|e| crate::db::session::map_lost(s.as_ref(), e))?)
 }
 
 /// Upper bound on rows kept per statement, whatever the UI asks for.
@@ -545,13 +697,23 @@ const DB_MAX_ROWS: usize = 50_000;
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum QueryOutcome {
-    Done { output: crate::db::QueryOutput },
+    Done {
+        output: crate::db::QueryOutput,
+    },
     /// Nothing ran: these statements need the user's go-ahead first.
-    NeedsConfirmation { risks: Vec<crate::db::risk::Risk> },
+    NeedsConfirmation {
+        risks: Vec<crate::db::risk::Risk>,
+    },
 }
 
 #[tauri::command]
-pub async fn db_query(state: State<'_, AppState>, session_id: String, sql: String, row_limit: usize, confirmed: bool) -> CmdResult<QueryOutcome> {
+pub async fn db_query(
+    state: State<'_, AppState>,
+    session_id: String,
+    sql: String,
+    row_limit: usize,
+    confirmed: bool,
+) -> CmdResult<QueryOutcome> {
     let (s, safety, profile_id) = crate::db::session::get(&state, &session_id).await?;
     if safety == Safety::Confirm && !confirmed {
         let risks = crate::db::risk::classify(&sql);
@@ -560,14 +722,35 @@ pub async fn db_query(state: State<'_, AppState>, session_id: String, sql: Strin
         }
     }
     let started = std::time::Instant::now();
-    let res = s.query(&sql, row_limit.clamp(1, DB_MAX_ROWS)).await.map_err(|e| crate::db::session::map_lost(s.as_ref(), e));
+    let res = s
+        .query(&sql, row_limit.clamp(1, DB_MAX_ROWS))
+        .await
+        .map_err(|e| crate::db::session::map_lost(s.as_ref(), e));
     // Query history (M2.5): what ran, when, how long, how many rows.
-    let name = state.dbs.lock().get(&profile_id).map(|d| d.name).unwrap_or_default();
-    let mut entry = crate::activity::ActivityEntry::new(crate::activity::ActivityKind::Query, name, &sql, res.is_ok());
+    let name = state
+        .dbs
+        .lock()
+        .get(&profile_id)
+        .map(|d| d.name)
+        .unwrap_or_default();
+    let mut entry = crate::activity::ActivityEntry::new(
+        crate::activity::ActivityKind::Query,
+        name,
+        &sql,
+        res.is_ok(),
+    );
     entry.db_id = Some(profile_id);
     entry.duration_ms = Some(started.elapsed().as_millis() as u64);
     match &res {
-        Ok(o) => entry.count = o.results.last().map(|r| if r.columns.is_empty() { r.rows_affected.unwrap_or(0) } else { r.rows.len() as u64 }),
+        Ok(o) => {
+            entry.count = o.results.last().map(|r| {
+                if r.columns.is_empty() {
+                    r.rows_affected.unwrap_or(0)
+                } else {
+                    r.rows.len() as u64
+                }
+            })
+        }
         Err(e) => entry.message = Some(format!("{e:#}")),
     }
     state.activity.add(entry);
@@ -581,7 +764,10 @@ pub async fn db_cancel(state: State<'_, AppState>, session_id: String) -> CmdRes
 }
 
 #[tauri::command]
-pub async fn db_tx_state(state: State<'_, AppState>, session_id: String) -> CmdResult<crate::db::TxState> {
+pub async fn db_tx_state(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<crate::db::TxState> {
     let (s, _, _) = crate::db::session::get(&state, &session_id).await?;
     Ok(s.tx_state().await?)
 }
@@ -591,7 +777,13 @@ pub async fn db_tx_state(state: State<'_, AppState>, session_id: String) -> CmdR
 /// Ask where to save, then write an encrypted backup there. Returns the path,
 /// or None when the user cancelled.
 #[tauri::command]
-pub async fn backup_export(app: AppHandle, state: State<'_, AppState>, passphrase: String, include_secrets: bool, include_history: Option<bool>) -> CmdResult<Option<String>> {
+pub async fn backup_export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    passphrase: String,
+    include_secrets: bool,
+    include_history: Option<bool>,
+) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let backup = crate::backup::build(&state, include_secrets, include_history.unwrap_or(false))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -603,8 +795,12 @@ pub async fn backup_export(app: AppHandle, state: State<'_, AppState>, passphras
         .save_file(move |p| {
             let _ = tx.send(p);
         });
-    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| anyhow!("unsupported file location: {e}"))?;
     let p2 = path.clone();
     let pass = zeroize::Zeroizing::new(passphrase);
     tokio::task::spawn_blocking(move || crate::backup::write(&p2, &pass, &backup)).await??;
@@ -623,13 +819,24 @@ pub async fn backup_pick(app: AppHandle) -> CmdResult<Option<String>> {
         .pick_file(move |p| {
             let _ = tx.send(p);
         });
-    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
-    app.state::<AppState>().granted_files.lock().insert(std::fs::canonicalize(&path)?);
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    app.state::<AppState>()
+        .granted_files
+        .lock()
+        .insert(std::fs::canonicalize(&path)?);
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-async fn read_backup(state: &AppState, path: &str, passphrase: String) -> anyhow::Result<crate::backup::Backup> {
+async fn read_backup(
+    state: &AppState,
+    path: &str,
+    passphrase: String,
+) -> anyhow::Result<crate::backup::Backup> {
     let p = granted_path(state, std::path::Path::new(path), false)?;
     let pass = zeroize::Zeroizing::new(passphrase);
     tokio::task::spawn_blocking(move || crate::backup::read(&p, &pass)).await?
@@ -637,15 +844,25 @@ async fn read_backup(state: &AppState, path: &str, passphrase: String) -> anyhow
 
 /// Decrypt a picked backup and say what restoring it would add.
 #[tauri::command]
-pub async fn backup_preview(state: State<'_, AppState>, path: String, passphrase: String) -> CmdResult<crate::backup::Summary> {
+pub async fn backup_preview(
+    state: State<'_, AppState>,
+    path: String,
+    passphrase: String,
+) -> CmdResult<crate::backup::Summary> {
     let b = read_backup(&state, &path, passphrase).await?;
     Ok(crate::backup::summarize(&state, &b))
 }
 
 #[tauri::command]
-pub async fn backup_import(state: State<'_, AppState>, path: String, passphrase: String, replace_settings: bool) -> CmdResult<crate::backup::Restored> {
+pub async fn backup_import(
+    state: State<'_, AppState>,
+    path: String,
+    passphrase: String,
+    replace_settings: bool,
+) -> CmdResult<crate::backup::Restored> {
     let b = read_backup(&state, &path, passphrase).await?;
-    let r = crate::backup::apply(&state, b, replace_settings, allowed_shell).map_err(crate::backup::friendly)?;
+    let r = crate::backup::apply(&state, b, replace_settings, allowed_shell)
+        .map_err(crate::backup::friendly)?;
     granted_path(&state, std::path::Path::new(&path), true).ok();
     Ok(r)
 }
@@ -658,7 +875,10 @@ pub fn library_get(state: State<'_, AppState>) -> crate::store::library::Library
 }
 
 #[tauri::command]
-pub fn command_save(state: State<'_, AppState>, command: crate::store::library::SavedCommand) -> CmdResult<crate::store::library::SavedCommand> {
+pub fn command_save(
+    state: State<'_, AppState>,
+    command: crate::store::library::SavedCommand,
+) -> CmdResult<crate::store::library::SavedCommand> {
     Ok(state.library.lock().save_command(command)?)
 }
 
@@ -668,7 +888,10 @@ pub fn command_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub fn workspace_save(state: State<'_, AppState>, workspace: crate::store::library::Workspace) -> CmdResult<crate::store::library::Workspace> {
+pub fn workspace_save(
+    state: State<'_, AppState>,
+    workspace: crate::store::library::Workspace,
+) -> CmdResult<crate::store::library::Workspace> {
     Ok(state.library.lock().save_workspace(workspace)?)
 }
 
@@ -678,7 +901,10 @@ pub fn workspace_delete(state: State<'_, AppState>, id: String) -> CmdResult<()>
 }
 
 #[tauri::command]
-pub fn activity_list(state: State<'_, AppState>, filter: crate::activity::ActivityFilter) -> Vec<crate::activity::ActivityEntry> {
+pub fn activity_list(
+    state: State<'_, AppState>,
+    filter: crate::activity::ActivityFilter,
+) -> Vec<crate::activity::ActivityEntry> {
     state.activity.list(&filter)
 }
 
@@ -703,7 +929,14 @@ pub async fn hosts_run(
     confirmed_production: bool,
     on_event: Channel<crate::runner::RunEvent>,
 ) -> CmdResult<String> {
-    Ok(crate::runner::start(app, host_ids, command, timeout_secs, confirmed_production, on_event)?)
+    Ok(crate::runner::start(
+        app,
+        host_ids,
+        command,
+        timeout_secs,
+        confirmed_production,
+        on_event,
+    )?)
 }
 
 /// Where a host's terminal logs are written.
@@ -716,12 +949,25 @@ pub fn host_logs_dir(state: State<'_, AppState>, host_id: String) -> CmdResult<S
 // ---------- terminals ----------
 
 #[tauri::command]
-pub fn term_open_local(app: AppHandle, cols: u16, rows: u16, cwd: Option<String>, on_event: Channel<TermEvent>) -> CmdResult<String> {
+pub fn term_open_local(
+    app: AppHandle,
+    cols: u16,
+    rows: u16,
+    cwd: Option<String>,
+    on_event: Channel<TermEvent>,
+) -> CmdResult<String> {
     Ok(term::open_local(app, cols, rows, cwd, on_event)?)
 }
 
 #[tauri::command]
-pub async fn term_open_ssh(app: AppHandle, host_id: String, cols: u16, rows: u16, session_key: Option<String>, on_event: Channel<TermEvent>) -> CmdResult<String> {
+pub async fn term_open_ssh(
+    app: AppHandle,
+    host_id: String,
+    cols: u16,
+    rows: u16,
+    session_key: Option<String>,
+    on_event: Channel<TermEvent>,
+) -> CmdResult<String> {
     Ok(term::open_ssh(app, host_id, cols, rows, None, session_key, on_event).await?)
 }
 
@@ -778,7 +1024,12 @@ pub async fn sftp_home(app: AppHandle, host_id: String) -> CmdResult<String> {
 }
 
 #[tauri::command]
-pub async fn sftp_list(app: AppHandle, host_id: String, path: String, sudo: Option<bool>) -> CmdResult<Vec<FileEntry>> {
+pub async fn sftp_list(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+    sudo: Option<bool>,
+) -> CmdResult<Vec<FileEntry>> {
     Ok(sftp::list(&app, &host_id, &path, sudo.unwrap_or(false)).await?)
 }
 
@@ -791,7 +1042,11 @@ pub fn local_list(path: String) -> CmdResult<Vec<FileEntry>> {
 /// `local_read_text` / the ssh_config commands may read it; nothing else can be
 /// read by path from the webview.
 #[tauri::command]
-pub async fn local_pick_file(app: AppHandle, title: String, directory: Option<String>) -> CmdResult<Option<String>> {
+pub async fn local_pick_file(
+    app: AppHandle,
+    title: String,
+    directory: Option<String>,
+) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let mut d = app.dialog().file().set_title(title);
@@ -801,27 +1056,45 @@ pub async fn local_pick_file(app: AppHandle, title: String, directory: Option<St
     d.pick_file(move |p| {
         let _ = tx.send(p);
     });
-    let Some(picked) = rx.await.ok().flatten() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| anyhow!("unsupported file location: {e}"))?;
     let canon = std::fs::canonicalize(&path)?;
     app.state::<AppState>().granted_files.lock().insert(canon);
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// The canonical path of `p` if the user picked it via `local_pick_file`.
-fn granted_path(state: &AppState, p: &std::path::Path, consume: bool) -> anyhow::Result<std::path::PathBuf> {
+fn granted_path(
+    state: &AppState,
+    p: &std::path::Path,
+    consume: bool,
+) -> anyhow::Result<std::path::PathBuf> {
     let canon = std::fs::canonicalize(p)?;
     let mut g = state.granted_files.lock();
-    let ok = if consume { g.remove(&canon) } else { g.contains(&canon) };
+    let ok = if consume {
+        g.remove(&canon)
+    } else {
+        g.contains(&canon)
+    };
     if !ok {
-        return Err(anyhow!("{} must be chosen with the file picker", p.display()));
+        return Err(anyhow!(
+            "{} must be chosen with the file picker",
+            p.display()
+        ));
     }
     Ok(canon)
 }
 
 /// Read a small local text file the user just picked (private key import).
 #[tauri::command]
-pub fn local_read_text(state: State<'_, AppState>, path: String) -> CmdResult<zeroize::Zeroizing<String>> {
+pub fn local_read_text(
+    state: State<'_, AppState>,
+    path: String,
+) -> CmdResult<zeroize::Zeroizing<String>> {
     let p = granted_path(&state, &crate::paths::expand_tilde(&path), true)?;
     let meta = std::fs::metadata(&p)?;
     if meta.len() > 256 * 1024 {
@@ -836,29 +1109,56 @@ pub fn local_home() -> String {
 }
 
 #[tauri::command]
-pub async fn sftp_mkdir(app: AppHandle, host_id: String, path: String, sudo: Option<bool>) -> CmdResult<()> {
+pub async fn sftp_mkdir(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+    sudo: Option<bool>,
+) -> CmdResult<()> {
     Ok(sftp::mkdir(&app, &host_id, &path, sudo.unwrap_or(false)).await?)
 }
 
 #[tauri::command]
-pub async fn sftp_rename(app: AppHandle, host_id: String, from: String, to: String, sudo: Option<bool>) -> CmdResult<()> {
+pub async fn sftp_rename(
+    app: AppHandle,
+    host_id: String,
+    from: String,
+    to: String,
+    sudo: Option<bool>,
+) -> CmdResult<()> {
     Ok(sftp::rename(&app, &host_id, &from, &to, sudo.unwrap_or(false)).await?)
 }
 
 #[tauri::command]
-pub async fn sftp_remove(app: AppHandle, host_id: String, path: String, sudo: Option<bool>) -> CmdResult<()> {
+pub async fn sftp_remove(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+    sudo: Option<bool>,
+) -> CmdResult<()> {
     Ok(sftp::remove(&app, &host_id, &path, sudo.unwrap_or(false)).await?)
 }
 
 #[tauri::command]
-pub async fn sftp_chmod(app: AppHandle, host_id: String, path: String, mode: u32, sudo: Option<bool>) -> CmdResult<()> {
+pub async fn sftp_chmod(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+    mode: u32,
+    sudo: Option<bool>,
+) -> CmdResult<()> {
     Ok(sftp::chmod(&app, &host_id, &path, mode, sudo.unwrap_or(false)).await?)
 }
 
 // Editing remote text files (M3.2).
 
 #[tauri::command]
-pub async fn sftp_read_text(app: AppHandle, host_id: String, path: String, sudo: Option<bool>) -> CmdResult<crate::remote_edit::TextFile> {
+pub async fn sftp_read_text(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+    sudo: Option<bool>,
+) -> CmdResult<crate::remote_edit::TextFile> {
     let s = sftp::session_as(&app, &host_id, sudo.unwrap_or(false)).await?;
     Ok(crate::remote_edit::read_text(&s, &path).await?)
 }
@@ -885,7 +1185,11 @@ pub async fn sftp_write_text(
 /// Start (or restart) the root SFTP session for a host. Without a password it
 /// only works where sudo needs none; the password is used once and dropped.
 #[tauri::command]
-pub async fn sftp_sudo_open(app: AppHandle, host_id: String, password: Option<String>) -> CmdResult<()> {
+pub async fn sftp_sudo_open(
+    app: AppHandle,
+    host_id: String,
+    password: Option<String>,
+) -> CmdResult<()> {
     let pw = password.map(zeroize::Zeroizing::new);
     Ok(crate::sudo::open_sftp(&app, &host_id, pw).await?)
 }
@@ -896,7 +1200,15 @@ pub async fn sftp_sudo_close(app: AppHandle, host_id: String) {
 }
 
 /// Run a compress/extract command as a cancellable task; records it in Activity.
-async fn run_file_action(app: &AppHandle, host_id: String, what: String, cmd: String, sudo: bool, password: Option<String>, task_id: String) -> CmdResult<String> {
+async fn run_file_action(
+    app: &AppHandle,
+    host_id: String,
+    what: String,
+    cmd: String,
+    sudo: bool,
+    password: Option<String>,
+    task_id: String,
+) -> CmdResult<String> {
     let started = std::time::Instant::now();
     let a = app.clone();
     let hid = host_id.clone();
@@ -910,15 +1222,36 @@ async fn run_file_action(app: &AppHandle, host_id: String, what: String, cmd: St
     state.tasks.lock().remove(&task_id);
     let outcome: Result<String, String> = match res {
         Ok(Ok((Some(0), out))) => Ok(out),
-        Ok(Ok((code, out))) => Err(format!("{}{}", out.trim(), if out.trim().is_empty() { format!("exited with {}", code.map_or("no status".into(), |c| c.to_string())) } else { String::new() })),
+        Ok(Ok((code, out))) => Err(format!(
+            "{}{}",
+            out.trim(),
+            if out.trim().is_empty() {
+                format!(
+                    "exited with {}",
+                    code.map_or("no status".into(), |c| c.to_string())
+                )
+            } else {
+                String::new()
+            }
+        )),
         Ok(Err(e)) => Err(format!("{e:#}")),
         Err(j) if j.is_cancelled() => Err("cancelled".into()),
         Err(j) => Err(format!("task failed: {j}")),
     };
     // A sudo password prompt isn't an outcome worth recording.
     if !matches!(&outcome, Err(m) if m.starts_with(crate::sudo::NEED_PASSWORD)) {
-        let name = state.hosts.lock().get(&host_id).map(|h| h.name).unwrap_or_default();
-        let mut e = crate::activity::ActivityEntry::new(crate::activity::ActivityKind::FileAction, name, &format!("{what}{}", if sudo { " (as root)" } else { "" }), outcome.is_ok());
+        let name = state
+            .hosts
+            .lock()
+            .get(&host_id)
+            .map(|h| h.name)
+            .unwrap_or_default();
+        let mut e = crate::activity::ActivityEntry::new(
+            crate::activity::ActivityKind::FileAction,
+            name,
+            &format!("{what}{}", if sudo { " (as root)" } else { "" }),
+            outcome.is_ok(),
+        );
         e.host_id = Some(host_id);
         e.message = outcome.as_ref().err().cloned();
         e.duration_ms = Some(started.elapsed().as_millis() as u64);
@@ -941,8 +1274,21 @@ pub async fn remote_compress(
     task_id: String,
 ) -> CmdResult<String> {
     let cmd = crate::remote_ops::compress_command(&dir, &names, &archive, format)?;
-    let what = format!("Compress {} → {}", names.join(", "), sftp::join(&dir, &archive));
-    run_file_action(&app, host_id, what, cmd, sudo.unwrap_or(false), password, task_id).await
+    let what = format!(
+        "Compress {} → {}",
+        names.join(", "),
+        sftp::join(&dir, &archive)
+    );
+    run_file_action(
+        &app,
+        host_id,
+        what,
+        cmd,
+        sudo.unwrap_or(false),
+        password,
+        task_id,
+    )
+    .await
 }
 
 /// Extract an archive into a new folder named after it (asks first if it exists).
@@ -966,13 +1312,28 @@ pub async fn remote_extract(
         }
     }
     let cmd = crate::remote_ops::extract_command(&archive, &dest, overwrite)?;
-    run_file_action(&app, host_id, format!("Extract {archive} → {dest}"), cmd, sudo, password, task_id).await
+    run_file_action(
+        &app,
+        host_id,
+        format!("Extract {archive} → {dest}"),
+        cmd,
+        sudo,
+        password,
+        task_id,
+    )
+    .await
 }
 
 // Local files for in-terminal transfers (M3.1): only what the user picks.
 
 #[tauri::command]
-pub async fn local_fs_pick(app: AppHandle, folder: bool, multiple: bool, write: bool, title: String) -> CmdResult<Vec<String>> {
+pub async fn local_fs_pick(
+    app: AppHandle,
+    folder: bool,
+    multiple: bool,
+    write: bool,
+    title: String,
+) -> CmdResult<Vec<String>> {
     Ok(crate::local_fs::pick(&app, folder, multiple, write, &title).await?)
 }
 
@@ -988,20 +1349,41 @@ pub fn local_fs_list(app: AppHandle, path: String) -> CmdResult<Vec<crate::local
 
 /// Raw bytes (an ArrayBuffer on the web side).
 #[tauri::command]
-pub fn local_fs_read(app: AppHandle, path: String, offset: u64, len: u32) -> CmdResult<tauri::ipc::Response> {
-    Ok(tauri::ipc::Response::new(crate::local_fs::read(&app, &path, offset, len.min(16 * 1024 * 1024))?))
+pub fn local_fs_read(
+    app: AppHandle,
+    path: String,
+    offset: u64,
+    len: u32,
+) -> CmdResult<tauri::ipc::Response> {
+    Ok(tauri::ipc::Response::new(crate::local_fs::read(
+        &app,
+        &path,
+        offset,
+        len.min(16 * 1024 * 1024),
+    )?))
 }
 
 #[tauri::command]
-pub fn local_fs_create(app: AppHandle, dir: String, name: String, folder: bool) -> CmdResult<String> {
+pub fn local_fs_create(
+    app: AppHandle,
+    dir: String,
+    name: String,
+    folder: bool,
+) -> CmdResult<String> {
     Ok(crate::local_fs::create(&app, &dir, &name, folder)?)
 }
 
 /// Append raw bytes (the request body) to `x-path` (URL-encoded header); no base64.
 #[tauri::command]
 pub fn local_fs_append_raw(app: AppHandle, request: tauri::ipc::Request<'_>) -> CmdResult<()> {
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err(anyhow!("expected raw bytes").into()) };
-    let path = request.headers().get("x-path").and_then(|v| v.to_str().ok()).ok_or_else(|| anyhow!("missing path"))?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(anyhow!("expected raw bytes").into());
+    };
+    let path = request
+        .headers()
+        .get("x-path")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| anyhow!("missing path"))?;
     let path = percent_decode(path);
     Ok(crate::local_fs::append(&app, &path, bytes)?)
 }
@@ -1027,14 +1409,20 @@ fn percent_decode(s: &str) -> String {
 #[tauri::command]
 pub fn local_fs_append(app: AppHandle, path: String, data: String) -> CmdResult<()> {
     use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| anyhow!("bad data: {e}"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| anyhow!("bad data: {e}"))?;
     Ok(crate::local_fs::append(&app, &path, &bytes)?)
 }
 
 // Open in my editor (M3.2).
 
 #[tauri::command]
-pub async fn local_edit_open(app: AppHandle, host_id: String, path: String) -> CmdResult<crate::local_edit::LocalEditView> {
+pub async fn local_edit_open(
+    app: AppHandle,
+    host_id: String,
+    path: String,
+) -> CmdResult<crate::local_edit::LocalEditView> {
     Ok(crate::local_edit::open(&app, &host_id, &path).await?)
 }
 
@@ -1057,7 +1445,12 @@ pub fn local_edit_stop(app: AppHandle, id: String) {
 // Async so the queue can spawn work on the Tokio runtime (sync commands run on the main thread).
 
 #[tauri::command]
-pub async fn transfer_add(app: AppHandle, source: crate::transfers::Endpoint, dest_dir: crate::transfers::Endpoint, overwrite: Option<bool>) -> String {
+pub async fn transfer_add(
+    app: AppHandle,
+    source: crate::transfers::Endpoint,
+    dest_dir: crate::transfers::Endpoint,
+    overwrite: Option<bool>,
+) -> String {
     crate::transfers::add(&app, source, dest_dir, overwrite.unwrap_or(false))
 }
 
@@ -1096,11 +1489,18 @@ pub fn transfer_clear(app: AppHandle, ids: Option<Vec<String>>) {
 #[tauri::command]
 pub async fn docker_info(app: AppHandle, endpoint: String) -> CmdResult<EndpointInfo> {
     docker::ensure_endpoint(&endpoint)?;
-    Ok(docker::backend(&app, &endpoint).await?.info(&endpoint).await?)
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .info(&endpoint)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_list(app: AppHandle, endpoint: String, all: bool) -> CmdResult<Vec<ContainerInfo>> {
+pub async fn docker_list(
+    app: AppHandle,
+    endpoint: String,
+    all: bool,
+) -> CmdResult<Vec<ContainerInfo>> {
     docker::ensure_endpoint(&endpoint)?;
     Ok(docker::backend(&app, &endpoint).await?.list(all).await?)
 }
@@ -1111,12 +1511,24 @@ pub async fn docker_images(app: AppHandle, endpoint: String) -> CmdResult<Vec<Im
 }
 
 #[tauri::command]
-pub async fn docker_action(app: AppHandle, endpoint: String, id: String, action: Action) -> CmdResult<()> {
-    Ok(docker::backend(&app, &endpoint).await?.action(&id, action).await?)
+pub async fn docker_action(
+    app: AppHandle,
+    endpoint: String,
+    id: String,
+    action: Action,
+) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .action(&id, action)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_inspect(app: AppHandle, endpoint: String, id: String) -> CmdResult<serde_json::Value> {
+pub async fn docker_inspect(
+    app: AppHandle,
+    endpoint: String,
+    id: String,
+) -> CmdResult<serde_json::Value> {
     Ok(docker::backend(&app, &endpoint).await?.inspect(&id).await?)
 }
 
@@ -1164,8 +1576,14 @@ pub fn settings_get(state: State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 pub fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
-    if settings.local_shell != state.settings.lock().local_shell && !allowed_shell(&settings.local_shell) {
-        return Err(anyhow!("{} is not a login shell listed in /etc/shells", settings.local_shell).into());
+    if settings.local_shell != state.settings.lock().local_shell
+        && !allowed_shell(&settings.local_shell)
+    {
+        return Err(anyhow!(
+            "{} is not a login shell listed in /etc/shells",
+            settings.local_shell
+        )
+        .into());
     }
     settings.save(&state.settings_path)?;
     *state.settings.lock() = settings.clone();
@@ -1174,7 +1592,9 @@ pub fn settings_save(state: State<'_, AppState>, settings: Settings) -> CmdResul
 
 // ---------- docker administration ----------
 
-use crate::docker_admin::{self, NetworkInfo, PruneOptions, PruneResult, PruneTarget, UsageRow, VolumeInfo};
+use crate::docker_admin::{
+    self, NetworkInfo, PruneOptions, PruneResult, PruneTarget, UsageRow, VolumeInfo,
+};
 
 #[tauri::command]
 pub async fn docker_disk_usage(app: AppHandle, endpoint: String) -> CmdResult<Vec<UsageRow>> {
@@ -1182,8 +1602,16 @@ pub async fn docker_disk_usage(app: AppHandle, endpoint: String) -> CmdResult<Ve
 }
 
 #[tauri::command]
-pub async fn docker_prune(app: AppHandle, endpoint: String, target: PruneTarget, options: PruneOptions) -> CmdResult<PruneResult> {
-    Ok(docker::backend(&app, &endpoint).await?.prune(target, options).await?)
+pub async fn docker_prune(
+    app: AppHandle,
+    endpoint: String,
+    target: PruneTarget,
+    options: PruneOptions,
+) -> CmdResult<PruneResult> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .prune(target, options)
+        .await?)
 }
 
 #[tauri::command]
@@ -1193,17 +1621,35 @@ pub async fn docker_volumes(app: AppHandle, endpoint: String) -> CmdResult<Vec<V
 
 #[tauri::command]
 pub async fn docker_volume_create(app: AppHandle, endpoint: String, name: String) -> CmdResult<()> {
-    Ok(docker::backend(&app, &endpoint).await?.volume_create(&name).await?)
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .volume_create(&name)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_volume_remove(app: AppHandle, endpoint: String, name: String, force: bool) -> CmdResult<()> {
-    Ok(docker::backend(&app, &endpoint).await?.volume_remove(&name, force).await?)
+pub async fn docker_volume_remove(
+    app: AppHandle,
+    endpoint: String,
+    name: String,
+    force: bool,
+) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .volume_remove(&name, force)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_volume_inspect(app: AppHandle, endpoint: String, name: String) -> CmdResult<serde_json::Value> {
-    Ok(docker::backend(&app, &endpoint).await?.volume_inspect(&name).await?)
+pub async fn docker_volume_inspect(
+    app: AppHandle,
+    endpoint: String,
+    name: String,
+) -> CmdResult<serde_json::Value> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .volume_inspect(&name)
+        .await?)
 }
 
 #[tauri::command]
@@ -1212,23 +1658,49 @@ pub async fn docker_networks(app: AppHandle, endpoint: String) -> CmdResult<Vec<
 }
 
 #[tauri::command]
-pub async fn docker_network_create(app: AppHandle, endpoint: String, name: String, internal: bool) -> CmdResult<()> {
-    Ok(docker::backend(&app, &endpoint).await?.network_create(&name, internal).await?)
+pub async fn docker_network_create(
+    app: AppHandle,
+    endpoint: String,
+    name: String,
+    internal: bool,
+) -> CmdResult<()> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .network_create(&name, internal)
+        .await?)
 }
 
 #[tauri::command]
 pub async fn docker_network_remove(app: AppHandle, endpoint: String, id: String) -> CmdResult<()> {
-    Ok(docker::backend(&app, &endpoint).await?.network_remove(&id).await?)
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .network_remove(&id)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_network_inspect(app: AppHandle, endpoint: String, id: String) -> CmdResult<serde_json::Value> {
-    Ok(docker::backend(&app, &endpoint).await?.network_inspect(&id).await?)
+pub async fn docker_network_inspect(
+    app: AppHandle,
+    endpoint: String,
+    id: String,
+) -> CmdResult<serde_json::Value> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .network_inspect(&id)
+        .await?)
 }
 
 #[tauri::command]
-pub async fn docker_image_remove(app: AppHandle, endpoint: String, reference: String, force: bool) -> CmdResult<Vec<String>> {
-    Ok(docker::backend(&app, &endpoint).await?.image_remove(&reference, force).await?)
+pub async fn docker_image_remove(
+    app: AppHandle,
+    endpoint: String,
+    reference: String,
+    force: bool,
+) -> CmdResult<Vec<String>> {
+    Ok(docker::backend(&app, &endpoint)
+        .await?
+        .image_remove(&reference, force)
+        .await?)
 }
 
 #[tauri::command]
@@ -1243,7 +1715,12 @@ pub async fn docker_image_pull(
 }
 
 #[tauri::command]
-pub async fn docker_project_action(app: AppHandle, endpoint: String, project: String, action: Action) -> CmdResult<usize> {
+pub async fn docker_project_action(
+    app: AppHandle,
+    endpoint: String,
+    project: String,
+    action: Action,
+) -> CmdResult<usize> {
     let b = docker::backend(&app, &endpoint).await?;
     Ok(docker_admin::project_action(&b, &project, action).await?)
 }
@@ -1266,7 +1743,10 @@ pub async fn docker_logs_multi(
     on_event: Channel<TermEvent>,
 ) -> CmdResult<String> {
     let list = containers.into_iter().map(|c| (c.id, c.name)).collect();
-    Ok(docker_admin::stream_multi_logs(app, endpoint, list, tail, timestamps, follow, on_event).await?)
+    Ok(
+        docker_admin::stream_multi_logs(app, endpoint, list, tail, timestamps, follow, on_event)
+            .await?,
+    )
 }
 
 // ---------- session (open tabs) ----------
@@ -1294,7 +1774,8 @@ fn allowed_shell(shell: &str) -> bool {
     if !std::path::Path::new(shell).is_absolute() {
         return false;
     }
-    let listed = std::fs::read_to_string("/etc/shells").is_ok_and(|t| t.lines().map(str::trim).any(|l| l == shell));
+    let listed = std::fs::read_to_string("/etc/shells")
+        .is_ok_and(|t| t.lines().map(str::trim).any(|l| l == shell));
     listed || std::env::var("SHELL").is_ok_and(|s| s == shell)
 }
 
@@ -1303,10 +1784,15 @@ fn allowed_shell(shell: &str) -> bool {
 #[tauri::command]
 pub fn open_url(url: String) -> CmdResult<()> {
     let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://")) || url.chars().any(|c| c.is_control()) {
+    if !(lower.starts_with("http://") || lower.starts_with("https://"))
+        || url.chars().any(|c| c.is_control())
+    {
         return Err(anyhow!("only http(s) links can be opened").into());
     }
-    std::process::Command::new("xdg-open").arg(&url).stdin(std::process::Stdio::null()).spawn()?;
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .stdin(std::process::Stdio::null())
+        .spawn()?;
     Ok(())
 }
 
@@ -1314,15 +1800,24 @@ pub fn open_url(url: String) -> CmdResult<()> {
 mod tests {
     #[test]
     fn decodes_header_paths() {
-        assert_eq!(super::percent_decode("%2Fhome%2Fu%2Fa%20b%C3%A9.txt"), "/home/u/a bé.txt");
+        assert_eq!(
+            super::percent_decode("%2Fhome%2Fu%2Fa%20b%C3%A9.txt"),
+            "/home/u/a bé.txt"
+        );
         assert_eq!(super::percent_decode("50%"), "50%");
         assert_eq!(super::percent_decode("%zz"), "%zz");
     }
 
     #[test]
     fn revealed_serializes_as_plain_strings() {
-        let r = super::Revealed { value: zeroize::Zeroizing::new("v".into()), passphrase: Some(zeroize::Zeroizing::new("p".into())) };
-        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"value":"v","passphrase":"p"}"#);
+        let r = super::Revealed {
+            value: zeroize::Zeroizing::new("v".into()),
+            passphrase: Some(zeroize::Zeroizing::new("p".into())),
+        };
+        assert_eq!(
+            serde_json::to_string(&r).unwrap(),
+            r#"{"value":"v","passphrase":"p"}"#
+        );
     }
 
     #[test]

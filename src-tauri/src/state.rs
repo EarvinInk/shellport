@@ -1,7 +1,9 @@
+use crate::db::session::OpenDb;
 use crate::docker::DockerBackend;
 use crate::ssh::SshConn;
-use crate::db::session::OpenDb;
-use crate::store::{databases::DbStore, hosts::HostStore, library::LibraryStore, settings::Settings};
+use crate::store::{
+    databases::DbStore, hosts::HostStore, library::LibraryStore, settings::Settings,
+};
 use crate::term::TermHandle;
 use crate::vault::Vault;
 use parking_lot::Mutex;

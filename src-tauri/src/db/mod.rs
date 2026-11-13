@@ -198,13 +198,25 @@ mod tests {
 
     #[test]
     fn cell_serializes_tagged() {
-        assert_eq!(serde_json::to_string(&Cell::Int(3)).unwrap(), r#"{"t":"int","v":3}"#);
-        assert_eq!(serde_json::to_string(&Cell::Null).unwrap(), r#"{"t":"null"}"#);
+        assert_eq!(
+            serde_json::to_string(&Cell::Int(3)).unwrap(),
+            r#"{"t":"int","v":3}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Cell::Null).unwrap(),
+            r#"{"t":"null"}"#
+        );
     }
 
     #[test]
     fn ssl_mode_names() {
-        assert_eq!(serde_json::to_string(&SslMode::VerifyFull).unwrap(), r#""verify-full""#);
-        assert_eq!(serde_json::from_str::<SslMode>(r#""prefer""#).unwrap(), SslMode::Prefer);
+        assert_eq!(
+            serde_json::to_string(&SslMode::VerifyFull).unwrap(),
+            r#""verify-full""#
+        );
+        assert_eq!(
+            serde_json::from_str::<SslMode>(r#""prefer""#).unwrap(),
+            SslMode::Prefer
+        );
     }
 }

@@ -25,7 +25,10 @@ fn account_for(config_dir: &std::path::Path, default_dir: &std::path::Path) -> S
 }
 
 fn entry() -> Result<keyring::Entry> {
-    let account = account_for(&crate::paths::config_dir(), &crate::paths::default_config_dir());
+    let account = account_for(
+        &crate::paths::config_dir(),
+        &crate::paths::default_config_dir(),
+    );
     Ok(keyring::Entry::new(SERVICE, &account)?)
 }
 
@@ -70,13 +73,20 @@ mod tests {
     #[test]
     fn default_profile_keeps_original_account_others_differ() {
         let d = tempfile::tempdir().unwrap();
-        let (main, other, other2) = (d.path().join("main"), d.path().join("demo"), d.path().join("demo2"));
+        let (main, other, other2) = (
+            d.path().join("main"),
+            d.path().join("demo"),
+            d.path().join("demo2"),
+        );
         for p in [&main, &other, &other2] {
             std::fs::create_dir(p).unwrap();
         }
         assert_eq!(account_for(&main, &main), "vault-key");
         let a = account_for(&other, &main);
-        assert!(a.starts_with("vault-key:") && a.len() == "vault-key:".len() + 16, "{a}");
+        assert!(
+            a.starts_with("vault-key:") && a.len() == "vault-key:".len() + 16,
+            "{a}"
+        );
         assert_ne!(a, account_for(&other2, &main));
         assert_eq!(a, account_for(&other, &main), "stable");
     }

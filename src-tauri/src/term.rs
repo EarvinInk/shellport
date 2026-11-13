@@ -26,16 +26,26 @@ const BATCH: usize = 64 * 1024;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TermEvent {
     /// base64-encoded bytes
-    Data { data: String },
-    Exit { code: Option<u32> },
-    Error { message: String },
+    Data {
+        data: String,
+    },
+    Exit {
+        code: Option<u32>,
+    },
+    Error {
+        message: String,
+    },
     /// The connection dropped (network, sleep, server restart): the session
     /// did not end on its own, so the UI may reconnect.
-    Lost { reason: String },
+    Lost {
+        reason: String,
+    },
 }
 
 pub fn data_event(bytes: &[u8]) -> TermEvent {
-    TermEvent::Data { data: B64.encode(bytes) }
+    TermEvent::Data {
+        data: B64.encode(bytes),
+    }
 }
 
 pub enum TermWriter {
@@ -91,10 +101,17 @@ impl TermHandle {
         let w = self.writer.lock().await;
         match &*w {
             TermWriter::Local { master, .. } => {
-                master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+                master.resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })?;
             }
             TermWriter::Ssh { chan } => chan.window_change(cols as u32, rows as u32, 0, 0).await?,
-            TermWriter::Docker { docker, exec_id, .. } => {
+            TermWriter::Docker {
+                docker, exec_id, ..
+            } => {
                 let opts = bollard::query_parameters::ResizeExecOptionsBuilder::new()
                     .h(rows as i32)
                     .w(cols as i32)
@@ -125,10 +142,13 @@ impl TermHandle {
 fn register(app: &AppHandle, w: TermWriter) -> (String, watch::Receiver<bool>) {
     let id = uuid::Uuid::new_v4().to_string();
     let (paused, rx) = watch::channel(false);
-    app.state::<AppState>()
-        .terms
-        .lock()
-        .insert(id.clone(), Arc::new(TermHandle { writer: tokio::sync::Mutex::new(w), paused }));
+    app.state::<AppState>().terms.lock().insert(
+        id.clone(),
+        Arc::new(TermHandle {
+            writer: tokio::sync::Mutex::new(w),
+            paused,
+        }),
+    );
     (id, rx)
 }
 
@@ -146,20 +166,41 @@ pub fn get(app: &AppHandle, id: &str) -> Result<Arc<TermHandle>> {
 }
 
 /// Spawn the user's shell in a local PTY.
-pub fn open_local(app: AppHandle, cols: u16, rows: u16, cwd: Option<String>, out: Channel<TermEvent>) -> Result<String> {
+pub fn open_local(
+    app: AppHandle,
+    cols: u16,
+    rows: u16,
+    cwd: Option<String>,
+    out: Channel<TermEvent>,
+) -> Result<String> {
     let shell = app.state::<AppState>().settings.lock().local_shell.clone();
-    let pair = native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+    let pair = native_pty_system().openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.cwd(cwd.map(|c| crate::paths::expand_tilde(&c)).unwrap_or_else(crate::paths::home_dir));
+    cmd.cwd(
+        cwd.map(|c| crate::paths::expand_tilde(&c))
+            .unwrap_or_else(crate::paths::home_dir),
+    );
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
     let killer = child.clone_killer();
-    let (id, paused) = register(&app, TermWriter::Local { writer, master: pair.master, killer });
+    let (id, paused) = register(
+        &app,
+        TermWriter::Local {
+            writer,
+            master: pair.master,
+            killer,
+        },
+    );
 
     let id2 = id.clone();
     std::thread::spawn(move || {
@@ -187,7 +228,11 @@ pub fn open_local(app: AppHandle, cols: u16, rows: u16, cwd: Option<String>, out
 
 /// tmux session name for a terminal tab; only safe characters are kept.
 fn tmux_name(key: &str) -> Option<String> {
-    let k: String = key.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(40).collect();
+    let k: String = key
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(40)
+        .collect();
     (!k.is_empty()).then(|| format!("shellport-{k}"))
 }
 
@@ -200,7 +245,9 @@ fn sh_quote(s: &str) -> String {
 /// startup command runs only when the session is first created; without tmux
 /// it falls back to a normal login shell.
 fn tmux_script(name: &str, startup: Option<&str>) -> String {
-    let start = startup.map(|c| format!(" && tmux send-keys -t {name} {} Enter", sh_quote(c))).unwrap_or_default();
+    let start = startup
+        .map(|c| format!(" && tmux send-keys -t {name} {} Enter", sh_quote(c)))
+        .unwrap_or_default();
     format!(
         "if command -v tmux >/dev/null 2>&1; then \
            tmux has-session -t {name} 2>/dev/null || {{ tmux new-session -d -s {name}{start}; }}; \
@@ -222,10 +269,19 @@ pub async fn open_ssh(
 ) -> Result<String> {
     let conn = crate::ssh::get_conn(app.clone(), host_id, 0).await?;
     let ch = conn.handle.channel_open_session().await?;
-    ch.request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[]).await?;
+    ch.request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+        .await?;
     let _ = ch.set_env(false, "COLORTERM", "truecolor").await;
-    let startup = conn.host.startup_command.as_deref().filter(|s| !s.trim().is_empty());
-    let tmux = if conn.host.tmux_session && command.is_none() { session_key.as_deref().and_then(tmux_name) } else { None };
+    let startup = conn
+        .host
+        .startup_command
+        .as_deref()
+        .filter(|s| !s.trim().is_empty());
+    let tmux = if conn.host.tmux_session && command.is_none() {
+        session_key.as_deref().and_then(tmux_name)
+    } else {
+        None
+    };
     match (&command, &tmux) {
         (Some(c), _) => ch.exec(true, c.as_str()).await?,
         (None, Some(name)) => ch.exec(true, tmux_script(name, startup).as_str()).await?,
@@ -240,7 +296,11 @@ pub async fn open_ssh(
     let (id, mut paused) = register(&app, TermWriter::Ssh { chan: write });
     let id2 = id.clone();
     // Opt-in per host: plain-text log of what this terminal showed.
-    let mut log = if conn.host.log_terminal && command.is_none() { open_log(&conn.host).await } else { None };
+    let mut log = if conn.host.log_terminal && command.is_none() {
+        open_log(&conn.host).await
+    } else {
+        None
+    };
     tokio::spawn(async move {
         let conn = conn; // keep the connection alive while the shell is open
         let mut code = None;
@@ -248,13 +308,16 @@ pub async fn open_ssh(
         let mut lines = crate::activity::LogLines::default();
         'outer: loop {
             wait_unpaused(&mut paused).await;
-            let Some(first) = read.wait().await else { break };
+            let Some(first) = read.wait().await else {
+                break;
+            };
             // Gather everything already received into one event.
             let mut buf = Vec::new();
             let mut next = Some(first);
             while let Some(msg) = next.take() {
                 match msg {
-                    russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. } => buf.extend_from_slice(&data),
+                    russh::ChannelMsg::Data { data }
+                    | russh::ChannelMsg::ExtendedData { data, .. } => buf.extend_from_slice(&data),
                     russh::ChannelMsg::ExitStatus { exit_status } => code = Some(exit_status),
                     russh::ChannelMsg::Close => closed = true,
                     _ => {}
@@ -281,8 +344,14 @@ pub async fn open_ssh(
         // The channel ended without the server closing it or reporting an exit
         // status: the connection itself is gone.
         if !closed && code.is_none() {
-            let reason = if conn.is_closed() { "the connection to the server was lost" } else { "the session ended unexpectedly" };
-            let _ = out.send(TermEvent::Lost { reason: reason.into() });
+            let reason = if conn.is_closed() {
+                "the connection to the server was lost"
+            } else {
+                "the session ended unexpectedly"
+            };
+            let _ = out.send(TermEvent::Lost {
+                reason: reason.into(),
+            });
         } else {
             let _ = out.send(TermEvent::Exit { code });
         }
@@ -293,8 +362,21 @@ pub async fn open_ssh(
 
 /// Folder holding a host's terminal logs.
 pub fn log_dir(host: &crate::store::hosts::Host) -> std::path::PathBuf {
-    let safe: String = host.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' }).collect();
-    crate::paths::config_dir().join("logs").join(format!("{safe}-{}", host.id.chars().take(8).collect::<String>()))
+    let safe: String = host
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    crate::paths::config_dir().join("logs").join(format!(
+        "{safe}-{}",
+        host.id.chars().take(8).collect::<String>()
+    ))
 }
 
 /// A new private log file for one terminal session (None if it can't be created).
@@ -328,9 +410,12 @@ async fn open_log(host: &crate::store::hosts::Host) -> Option<tokio::fs::File> {
 
 /// End the tmux session behind a closed tab (best effort).
 pub async fn kill_tmux(app: AppHandle, host_id: String, session_key: String) -> Result<()> {
-    let Some(name) = tmux_name(&session_key) else { return Ok(()) };
+    let Some(name) = tmux_name(&session_key) else {
+        return Ok(());
+    };
     let conn = crate::ssh::get_conn(app, host_id, 0).await?;
-    conn.exec_capture(&format!("tmux kill-session -t {name} 2>/dev/null; true")).await?;
+    conn.exec_capture(&format!("tmux kill-session -t {name} 2>/dev/null; true"))
+        .await?;
     Ok(())
 }
 
@@ -356,18 +441,32 @@ pub async fn open_docker_exec(
         ..Default::default()
     };
     let exec = docker.create_exec(&container, cfg).await?;
-    let started = docker.start_exec(&exec.id, None::<bollard::exec::StartExecOptions>).await?;
+    let started = docker
+        .start_exec(&exec.id, None::<bollard::exec::StartExecOptions>)
+        .await?;
     let bollard::exec::StartExecResults::Attached { mut output, input } = started else {
         return Err(anyhow!("exec started detached"));
     };
-    let (id, mut paused) = register(&app, TermWriter::Docker { input, docker: docker.clone(), exec_id: exec.id.clone() });
-    let opts = bollard::query_parameters::ResizeExecOptionsBuilder::new().h(rows as i32).w(cols as i32).build();
+    let (id, mut paused) = register(
+        &app,
+        TermWriter::Docker {
+            input,
+            docker: docker.clone(),
+            exec_id: exec.id.clone(),
+        },
+    );
+    let opts = bollard::query_parameters::ResizeExecOptionsBuilder::new()
+        .h(rows as i32)
+        .w(cols as i32)
+        .build();
     let _ = docker.resize_exec(&exec.id, opts).await;
     let id2 = id.clone();
     tokio::spawn(async move {
         'outer: loop {
             wait_unpaused(&mut paused).await;
-            let Some(chunk) = output.next().await else { break };
+            let Some(chunk) = output.next().await else {
+                break;
+            };
             let mut buf = Vec::new();
             let mut next = Some(chunk);
             while let Some(chunk) = next.take() {
@@ -375,7 +474,9 @@ pub async fn open_docker_exec(
                     Ok(o) => buf.extend_from_slice(&o.into_bytes()),
                     Err(e) => {
                         let _ = out.send(data_event(&buf));
-                        let _ = out.send(TermEvent::Error { message: e.to_string() });
+                        let _ = out.send(TermEvent::Error {
+                            message: e.to_string(),
+                        });
                         break 'outer;
                     }
                 }
@@ -414,7 +515,10 @@ mod tests {
     #[test]
     fn startup_command_is_quoted() {
         let s = tmux_script("shellport-t1", Some("echo 'hi' && cd /srv"));
-        assert!(s.contains(r#"send-keys -t shellport-t1 'echo '\''hi'\'' && cd /srv' Enter"#), "{s}");
+        assert!(
+            s.contains(r#"send-keys -t shellport-t1 'echo '\''hi'\'' && cd /srv' Enter"#),
+            "{s}"
+        );
         assert!(!tmux_script("shellport-t1", None).contains("send-keys"));
     }
 }

@@ -7,8 +7,9 @@ use crate::state::AppState;
 use crate::term::{data_event, TermEvent};
 use anyhow::{bail, Result};
 use bollard::query_parameters::{
-    CreateImageOptionsBuilder, ListContainersOptionsBuilder, LogsOptionsBuilder, PruneBuildOptionsBuilder,
-    PruneImagesOptionsBuilder, PruneVolumesOptionsBuilder, RemoveImageOptionsBuilder, RemoveVolumeOptionsBuilder,
+    CreateImageOptionsBuilder, ListContainersOptionsBuilder, LogsOptionsBuilder,
+    PruneBuildOptionsBuilder, PruneImagesOptionsBuilder, PruneVolumesOptionsBuilder,
+    RemoveImageOptionsBuilder, RemoveVolumeOptionsBuilder,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -98,7 +99,13 @@ fn short(s: &str, n: usize) -> String {
 
 fn valid_name(s: &str, extra: &str) -> Result<()> {
     // Must start alphanumeric: a leading '-' would be parsed as a CLI flag.
-    if s.is_empty() || s.len() > 255 || !s.starts_with(|c: char| c.is_ascii_alphanumeric()) || !s.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c) || extra.contains(c)) {
+    if s.is_empty()
+        || s.len() > 255
+        || !s.starts_with(|c: char| c.is_ascii_alphanumeric())
+        || !s
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c) || extra.contains(c))
+    {
         bail!("invalid name: {s:?}");
     }
     Ok(())
@@ -107,11 +114,17 @@ fn valid_name(s: &str, extra: &str) -> Result<()> {
 const PROJECT_LABEL: &str = "com.docker.compose.project";
 
 fn label_from_cli(labels: &str, key: &str) -> Option<String> {
-    labels.split(',').find_map(|kv| kv.strip_prefix(&format!("{key}="))).map(String::from)
+    labels
+        .split(',')
+        .find_map(|kv| kv.strip_prefix(&format!("{key}=")))
+        .map(String::from)
 }
 
 fn json_lines(out: &str) -> Result<Vec<serde_json::Value>> {
-    out.lines().filter(|l| !l.trim().is_empty()).map(|l| Ok(serde_json::from_str(l)?)).collect()
+    out.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| Ok(serde_json::from_str(l)?))
+        .collect()
 }
 
 fn s(j: &serde_json::Value, k: &str) -> String {
@@ -120,15 +133,23 @@ fn s(j: &serde_json::Value, k: &str) -> String {
 
 /// "Total reclaimed space: 1.2GB" → Some("1.2GB")
 fn reclaimed_from_cli(out: &str) -> Option<String> {
-    out.lines()
-        .find_map(|l| l.trim().strip_prefix("Total reclaimed space:").map(|v| v.trim().to_string()))
+    out.lines().find_map(|l| {
+        l.trim()
+            .strip_prefix("Total reclaimed space:")
+            .map(|v| v.trim().to_string())
+    })
 }
 
 /// Rough count of "deleted:"/"untagged:"/id lines in CLI prune output.
 fn cli_removed_lines(out: &str) -> Vec<String> {
     out.lines()
         .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with("Total reclaimed") && !l.ends_with(':') && !l.starts_with("WARNING"))
+        .filter(|l| {
+            !l.is_empty()
+                && !l.starts_with("Total reclaimed")
+                && !l.ends_with(':')
+                && !l.starts_with("WARNING")
+        })
         .map(String::from)
         .collect()
 }
@@ -145,7 +166,9 @@ impl DockerBackend {
         let mut networks: HashMap<String, Vec<String>> = HashMap::new();
         match self {
             DockerBackend::Api { docker, .. } => {
-                let list = docker.list_containers(Some(ListContainersOptionsBuilder::new().all(true).build())).await?;
+                let list = docker
+                    .list_containers(Some(ListContainersOptionsBuilder::new().all(true).build()))
+                    .await?;
                 for c in list {
                     let name = c
                         .names
@@ -165,14 +188,27 @@ impl DockerBackend {
                 }
             }
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture("docker ps -a --no-trunc --format '{{json .}}'").await?;
+                let out = conn
+                    .exec_capture("docker ps -a --no-trunc --format '{{json .}}'")
+                    .await?;
                 for j in json_lines(&out)? {
                     let name = s(&j, "Names");
-                    for v in s(&j, "Mounts").split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                    for v in s(&j, "Mounts")
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                    {
                         volumes.entry(v.to_string()).or_default().push(name.clone());
                     }
-                    for n in s(&j, "Networks").split(',').map(str::trim).filter(|v| !v.is_empty()) {
-                        networks.entry(n.to_string()).or_default().push(name.clone());
+                    for n in s(&j, "Networks")
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                    {
+                        networks
+                            .entry(n.to_string())
+                            .or_default()
+                            .push(name.clone());
                     }
                 }
             }
@@ -186,7 +222,11 @@ impl DockerBackend {
         match self {
             DockerBackend::Api { docker, .. } => {
                 let df = docker.df(None).await?;
-                let row = |kind: &str, total: Option<i64>, active: Option<i64>, size: Option<i64>, rec: Option<i64>| UsageRow {
+                let row = |kind: &str,
+                           total: Option<i64>,
+                           active: Option<i64>,
+                           size: Option<i64>,
+                           rec: Option<i64>| UsageRow {
                     kind: kind.into(),
                     total: total.unwrap_or(0),
                     active: active.unwrap_or(0),
@@ -196,31 +236,77 @@ impl DockerBackend {
                 };
                 let mut v = Vec::new();
                 if let Some(u) = df.image_usage {
-                    v.push(row("Images", u.total_count, u.active_count, u.total_size, u.reclaimable));
+                    v.push(row(
+                        "Images",
+                        u.total_count,
+                        u.active_count,
+                        u.total_size,
+                        u.reclaimable,
+                    ));
                 }
                 if let Some(u) = df.container_usage {
-                    v.push(row("Containers", u.total_count, u.active_count, u.total_size, u.reclaimable));
+                    v.push(row(
+                        "Containers",
+                        u.total_count,
+                        u.active_count,
+                        u.total_size,
+                        u.reclaimable,
+                    ));
                 }
                 if let Some(u) = df.volume_usage {
-                    v.push(row("Local Volumes", u.total_count, u.active_count, u.total_size, u.reclaimable));
+                    v.push(row(
+                        "Local Volumes",
+                        u.total_count,
+                        u.active_count,
+                        u.total_size,
+                        u.reclaimable,
+                    ));
                 }
                 if let Some(u) = df.build_cache_usage {
-                    v.push(row("Build Cache", u.total_count, u.active_count, u.total_size, u.reclaimable));
+                    v.push(row(
+                        "Build Cache",
+                        u.total_count,
+                        u.active_count,
+                        u.total_size,
+                        u.reclaimable,
+                    ));
                 }
                 if v.is_empty() {
                     // Engines older than API 1.52 don't send the *Usage summaries: count from listings.
-                    let images = docker.list_images(None::<bollard::query_parameters::ListImagesOptions>).await?;
+                    let images = docker
+                        .list_images(None::<bollard::query_parameters::ListImagesOptions>)
+                        .await?;
                     let containers = self.list(true).await?;
                     let vols = self.volumes().await?;
                     let size: i64 = images.iter().map(|i| i.size).sum();
-                    v.push(row("Images", Some(images.len() as i64), Some(images.iter().filter(|i| i.containers > 0).count() as i64), Some(size), None));
-                    v.push(row("Containers", Some(containers.len() as i64), Some(containers.iter().filter(|c| c.state == "running").count() as i64), None, None));
-                    v.push(row("Local Volumes", Some(vols.len() as i64), Some(vols.iter().filter(|x| !x.used_by.is_empty()).count() as i64), None, None));
+                    v.push(row(
+                        "Images",
+                        Some(images.len() as i64),
+                        Some(images.iter().filter(|i| i.containers > 0).count() as i64),
+                        Some(size),
+                        None,
+                    ));
+                    v.push(row(
+                        "Containers",
+                        Some(containers.len() as i64),
+                        Some(containers.iter().filter(|c| c.state == "running").count() as i64),
+                        None,
+                        None,
+                    ));
+                    v.push(row(
+                        "Local Volumes",
+                        Some(vols.len() as i64),
+                        Some(vols.iter().filter(|x| !x.used_by.is_empty()).count() as i64),
+                        None,
+                        None,
+                    ));
                 }
                 Ok(v)
             }
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture("docker system df --format '{{json .}}'").await?;
+                let out = conn
+                    .exec_capture("docker system df --format '{{json .}}'")
+                    .await?;
                 Ok(json_lines(&out)?
                     .into_iter()
                     .map(|j| UsageRow {
@@ -254,47 +340,80 @@ impl DockerBackend {
                 let do_networks = matches!(target, PruneTarget::Networks | PruneTarget::System);
                 let do_images = matches!(target, PruneTarget::Images | PruneTarget::System);
                 let do_build = matches!(target, PruneTarget::BuildCache | PruneTarget::System);
-                let do_volumes = target == PruneTarget::Volumes || (target == PruneTarget::System && opts.volumes);
+                let do_volumes = target == PruneTarget::Volumes
+                    || (target == PruneTarget::System && opts.volumes);
 
                 if do_containers {
                     let x = docker.prune_containers(None).await?;
                     let d = x.containers_deleted.unwrap_or_default();
-                    add(d.len(), x.space_reclaimed, d.into_iter().map(|i| format!("container {}", short(&i, 12))).collect());
+                    add(
+                        d.len(),
+                        x.space_reclaimed,
+                        d.into_iter()
+                            .map(|i| format!("container {}", short(&i, 12)))
+                            .collect(),
+                    );
                 }
                 if do_networks {
                     let x = docker.prune_networks(None).await?;
                     let d = x.networks_deleted.unwrap_or_default();
-                    add(d.len(), None, d.into_iter().map(|n| format!("network {n}")).collect());
+                    add(
+                        d.len(),
+                        None,
+                        d.into_iter().map(|n| format!("network {n}")).collect(),
+                    );
                 }
                 if do_volumes {
                     let mut f: HashMap<&str, Vec<&str>> = HashMap::new();
                     if opts.all {
                         f.insert("all", vec!["true"]);
                     }
-                    let x = docker.prune_volumes(Some(PruneVolumesOptionsBuilder::new().filters(&f).build())).await?;
+                    let x = docker
+                        .prune_volumes(Some(PruneVolumesOptionsBuilder::new().filters(&f).build()))
+                        .await?;
                     let d = x.volumes_deleted.unwrap_or_default();
-                    add(d.len(), x.space_reclaimed, d.into_iter().map(|v| format!("volume {v}")).collect());
+                    add(
+                        d.len(),
+                        x.space_reclaimed,
+                        d.into_iter().map(|v| format!("volume {v}")).collect(),
+                    );
                 }
                 if do_images {
                     let mut f: HashMap<&str, Vec<&str>> = HashMap::new();
                     f.insert("dangling", vec![if opts.all { "false" } else { "true" }]);
-                    let x = docker.prune_images(Some(PruneImagesOptionsBuilder::new().filters(&f).build())).await?;
+                    let x = docker
+                        .prune_images(Some(PruneImagesOptionsBuilder::new().filters(&f).build()))
+                        .await?;
                     let d = x.images_deleted.unwrap_or_default();
                     let lines: Vec<String> = d
                         .iter()
-                        .filter_map(|i| i.untagged.as_ref().map(|u| format!("untagged {u}")).or_else(|| i.deleted.as_ref().map(|u| format!("deleted {}", short(u, 19)))))
+                        .filter_map(|i| {
+                            i.untagged
+                                .as_ref()
+                                .map(|u| format!("untagged {u}"))
+                                .or_else(|| {
+                                    i.deleted
+                                        .as_ref()
+                                        .map(|u| format!("deleted {}", short(u, 19)))
+                                })
+                        })
                         .collect();
                     let n = d.iter().filter(|i| i.deleted.is_some()).count();
                     add(n, x.space_reclaimed, lines);
                 }
                 if do_build {
-                    match docker.prune_build(Some(PruneBuildOptionsBuilder::new().all(opts.all).build())).await {
+                    match docker
+                        .prune_build(Some(PruneBuildOptionsBuilder::new().all(opts.all).build()))
+                        .await
+                    {
                         Ok(x) => {
                             let d = x.caches_deleted.unwrap_or_default();
                             add(d.len(), x.space_reclaimed, vec![]);
                         }
                         // Build cache prune needs BuildKit; don't fail a system prune because of it.
-                        Err(e) if target == PruneTarget::System => r.details.push(format!("build cache skipped: {e}")),
+                        Err(e) if target == PruneTarget::System => {
+                            r.details.push(format!("build cache skipped: {e}"))
+                        }
                         Err(e) => return Err(e.into()),
                     }
                 }
@@ -308,11 +427,19 @@ impl DockerBackend {
                     PruneTarget::Volumes => format!("docker volume prune -f{a}"),
                     PruneTarget::Networks => "docker network prune -f".to_string(),
                     PruneTarget::BuildCache => format!("docker builder prune -f{a}"),
-                    PruneTarget::System => format!("docker system prune -f{a}{}", if opts.volumes { " --volumes" } else { "" }),
+                    PruneTarget::System => format!(
+                        "docker system prune -f{a}{}",
+                        if opts.volumes { " --volumes" } else { "" }
+                    ),
                 };
                 let out = conn.exec_capture(&cmd).await?;
                 let details = cli_removed_lines(&out);
-                Ok(PruneResult { removed: details.len(), reclaimed: None, reclaimed_text: reclaimed_from_cli(&out), details })
+                Ok(PruneResult {
+                    removed: details.len(),
+                    reclaimed: None,
+                    reclaimed_text: reclaimed_from_cli(&out),
+                    details,
+                })
             }
         }
     }
@@ -323,13 +450,16 @@ impl DockerBackend {
         let usage = self.usage_map().await?;
         let mut v = match self {
             DockerBackend::Api { docker, .. } => {
-                let res = docker.list_volumes(None::<bollard::query_parameters::ListVolumesOptions>).await?;
+                let res = docker
+                    .list_volumes(None::<bollard::query_parameters::ListVolumesOptions>)
+                    .await?;
                 res.volumes
                     .unwrap_or_default()
                     .into_iter()
                     .map(|vol| VolumeInfo {
                         anonymous: vol.labels.contains_key("com.docker.volume.anonymous")
-                            || (vol.name.len() == 64 && vol.name.chars().all(|c| c.is_ascii_hexdigit())),
+                            || (vol.name.len() == 64
+                                && vol.name.chars().all(|c| c.is_ascii_hexdigit())),
                         project: vol.labels.get(PROJECT_LABEL).cloned(),
                         created: vol.created_at.map(|d| d.to_string()),
                         used_by: usage.volumes.get(&vol.name).cloned().unwrap_or_default(),
@@ -340,14 +470,18 @@ impl DockerBackend {
                     .collect::<Vec<_>>()
             }
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture("docker volume ls --format '{{json .}}'").await?;
+                let out = conn
+                    .exec_capture("docker volume ls --format '{{json .}}'")
+                    .await?;
                 json_lines(&out)?
                     .into_iter()
                     .map(|j| {
                         let name = s(&j, "Name");
                         let labels = s(&j, "Labels");
                         VolumeInfo {
-                            anonymous: labels.contains("com.docker.volume.anonymous") || (name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit())),
+                            anonymous: labels.contains("com.docker.volume.anonymous")
+                                || (name.len() == 64
+                                    && name.chars().all(|c| c.is_ascii_hexdigit())),
                             project: label_from_cli(&labels, PROJECT_LABEL),
                             created: None,
                             used_by: usage.volumes.get(&name).cloned().unwrap_or_default(),
@@ -359,7 +493,11 @@ impl DockerBackend {
                     .collect()
             }
         };
-        v.sort_by(|a, b| a.anonymous.cmp(&b.anonymous).then_with(|| a.name.cmp(&b.name)));
+        v.sort_by(|a, b| {
+            a.anonymous
+                .cmp(&b.anonymous)
+                .then_with(|| a.name.cmp(&b.name))
+        });
         Ok(v)
     }
 
@@ -368,11 +506,15 @@ impl DockerBackend {
         match self {
             DockerBackend::Api { docker, .. } => {
                 docker
-                    .create_volume(bollard::models::VolumeCreateRequest { name: Some(name.to_string()), ..Default::default() })
+                    .create_volume(bollard::models::VolumeCreateRequest {
+                        name: Some(name.to_string()),
+                        ..Default::default()
+                    })
                     .await?;
             }
             DockerBackend::Cli { conn } => {
-                conn.exec_capture(&format!("docker volume create {}", shell_quote(name))).await?;
+                conn.exec_capture(&format!("docker volume create {}", shell_quote(name)))
+                    .await?;
             }
         }
         Ok(())
@@ -381,9 +523,21 @@ impl DockerBackend {
     pub async fn volume_remove(&self, name: &str, force: bool) -> Result<()> {
         valid_name(name, "")?;
         match self {
-            DockerBackend::Api { docker, .. } => docker.remove_volume(name, Some(RemoveVolumeOptionsBuilder::new().force(force).build())).await?,
+            DockerBackend::Api { docker, .. } => {
+                docker
+                    .remove_volume(
+                        name,
+                        Some(RemoveVolumeOptionsBuilder::new().force(force).build()),
+                    )
+                    .await?
+            }
             DockerBackend::Cli { conn } => {
-                conn.exec_capture(&format!("docker volume rm {}{}", if force { "-f " } else { "" }, shell_quote(name))).await?;
+                conn.exec_capture(&format!(
+                    "docker volume rm {}{}",
+                    if force { "-f " } else { "" },
+                    shell_quote(name)
+                ))
+                .await?;
             }
         }
         Ok(())
@@ -392,9 +546,15 @@ impl DockerBackend {
     pub async fn volume_inspect(&self, name: &str) -> Result<serde_json::Value> {
         valid_name(name, "")?;
         match self {
-            DockerBackend::Api { docker, .. } => Ok(serde_json::to_value(docker.inspect_volume(name).await?)?),
+            DockerBackend::Api { docker, .. } => {
+                Ok(serde_json::to_value(docker.inspect_volume(name).await?)?)
+            }
             DockerBackend::Cli { conn } => {
-                let v: serde_json::Value = serde_json::from_str(&conn.exec_capture(&format!("docker volume inspect {}", shell_quote(name))).await?)?;
+                let v: serde_json::Value = serde_json::from_str(
+                    &conn
+                        .exec_capture(&format!("docker volume inspect {}", shell_quote(name)))
+                        .await?,
+                )?;
                 Ok(v.get(0).cloned().unwrap_or(v))
             }
         }
@@ -412,7 +572,10 @@ impl DockerBackend {
                 .into_iter()
                 .map(|n| {
                     let name = n.name.unwrap_or_default();
-                    let cfg = n.ipam.and_then(|i| i.config).and_then(|c| c.into_iter().next());
+                    let cfg = n
+                        .ipam
+                        .and_then(|i| i.config)
+                        .and_then(|c| c.into_iter().next());
                     NetworkInfo {
                         id: n.id.unwrap_or_default(),
                         driver: n.driver.unwrap_or_default(),
@@ -420,7 +583,10 @@ impl DockerBackend {
                         subnet: cfg.as_ref().and_then(|c| c.subnet.clone()),
                         gateway: cfg.as_ref().and_then(|c| c.gateway.clone()),
                         internal: n.internal.unwrap_or(false),
-                        project: n.labels.as_ref().and_then(|l| l.get(PROJECT_LABEL).cloned()),
+                        project: n
+                            .labels
+                            .as_ref()
+                            .and_then(|l| l.get(PROJECT_LABEL).cloned()),
                         builtin: builtin(&name),
                         containers: usage.networks.get(&name).cloned().unwrap_or_default(),
                         name,
@@ -428,7 +594,9 @@ impl DockerBackend {
                 })
                 .collect::<Vec<_>>(),
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture("docker network ls --no-trunc --format '{{json .}}'").await?;
+                let out = conn
+                    .exec_capture("docker network ls --no-trunc --format '{{json .}}'")
+                    .await?;
                 json_lines(&out)?
                     .into_iter()
                     .map(|j| {
@@ -467,7 +635,12 @@ impl DockerBackend {
                     .await?;
             }
             DockerBackend::Cli { conn } => {
-                conn.exec_capture(&format!("docker network create {}{}", if internal { "--internal " } else { "" }, shell_quote(name))).await?;
+                conn.exec_capture(&format!(
+                    "docker network create {}{}",
+                    if internal { "--internal " } else { "" },
+                    shell_quote(name)
+                ))
+                .await?;
             }
         }
         Ok(())
@@ -478,7 +651,8 @@ impl DockerBackend {
         match self {
             DockerBackend::Api { docker, .. } => docker.remove_network(id).await?,
             DockerBackend::Cli { conn } => {
-                conn.exec_capture(&format!("docker network rm {}", shell_quote(id))).await?;
+                conn.exec_capture(&format!("docker network rm {}", shell_quote(id)))
+                    .await?;
             }
         }
         Ok(())
@@ -487,9 +661,15 @@ impl DockerBackend {
     pub async fn network_inspect(&self, id: &str) -> Result<serde_json::Value> {
         valid_name(id, "")?;
         match self {
-            DockerBackend::Api { docker, .. } => Ok(serde_json::to_value(docker.inspect_network(id, None).await?)?),
+            DockerBackend::Api { docker, .. } => Ok(serde_json::to_value(
+                docker.inspect_network(id, None).await?,
+            )?),
             DockerBackend::Cli { conn } => {
-                let v: serde_json::Value = serde_json::from_str(&conn.exec_capture(&format!("docker network inspect {}", shell_quote(id))).await?)?;
+                let v: serde_json::Value = serde_json::from_str(
+                    &conn
+                        .exec_capture(&format!("docker network inspect {}", shell_quote(id)))
+                        .await?,
+                )?;
                 Ok(v.get(0).cloned().unwrap_or(v))
             }
         }
@@ -501,13 +681,29 @@ impl DockerBackend {
         valid_name(reference, ":/@")?;
         match self {
             DockerBackend::Api { docker, .. } => {
-                let r = docker.remove_image(reference, Some(RemoveImageOptionsBuilder::new().force(force).build()), None).await?;
+                let r = docker
+                    .remove_image(
+                        reference,
+                        Some(RemoveImageOptionsBuilder::new().force(force).build()),
+                        None,
+                    )
+                    .await?;
                 Ok(r.into_iter()
-                    .filter_map(|i| i.untagged.map(|u| format!("untagged {u}")).or(i.deleted.map(|d| format!("deleted {d}"))))
+                    .filter_map(|i| {
+                        i.untagged
+                            .map(|u| format!("untagged {u}"))
+                            .or(i.deleted.map(|d| format!("deleted {d}")))
+                    })
                     .collect())
             }
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture(&format!("docker rmi {}{}", if force { "-f " } else { "" }, shell_quote(reference))).await?;
+                let out = conn
+                    .exec_capture(&format!(
+                        "docker rmi {}{}",
+                        if force { "-f " } else { "" },
+                        shell_quote(reference)
+                    ))
+                    .await?;
                 Ok(out.lines().map(String::from).collect())
             }
         }
@@ -518,7 +714,9 @@ impl DockerBackend {
 /// Registry host of an image reference ("docker.io" when none is given).
 pub fn registry_of(reference: &str) -> String {
     match reference.split_once('/') {
-        Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => first.to_string(),
+        Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => {
+            first.to_string()
+        }
         _ => "docker.io".to_string(),
     }
 }
@@ -536,13 +734,30 @@ pub fn registry_auth(app: &AppHandle, secret_id: &str) -> Result<RegistryAuth> {
         bail!("unlock the vault to use registry credentials");
     }
     let s = vault.get(secret_id)?;
-    let username = s.username.clone().filter(|u| !u.is_empty()).ok_or_else(|| anyhow::anyhow!("secret '{}' has no username set", s.name))?;
-    Ok(RegistryAuth { username, password: zeroize::Zeroizing::new(s.value.clone()) })
+    let username = s
+        .username
+        .clone()
+        .filter(|u| !u.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("secret '{}' has no username set", s.name))?;
+    Ok(RegistryAuth {
+        username,
+        password: zeroize::Zeroizing::new(s.value.clone()),
+    })
 }
 
-pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, secret_id: Option<String>, out: Channel<TermEvent>) -> Result<String> {
+pub async fn image_pull(
+    app: AppHandle,
+    endpoint: String,
+    reference: String,
+    secret_id: Option<String>,
+    out: Channel<TermEvent>,
+) -> Result<String> {
     valid_name(&reference, ":/@")?;
-    let auth = secret_id.as_deref().filter(|s| !s.is_empty()).map(|id| registry_auth(&app, id)).transpose()?;
+    let auth = secret_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|id| registry_auth(&app, id))
+        .transpose()?;
     let registry = registry_of(&reference);
     let b = backend(&app, &endpoint).await?;
     let task_id = format!("pull:{}", uuid::Uuid::new_v4());
@@ -560,7 +775,11 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, sec
             let creds = auth.as_ref().map(|a| bollard::auth::DockerCredentials {
                 username: Some(a.username.clone()),
                 password: Some(a.password.to_string()),
-                serveraddress: Some(if registry == "docker.io" { "https://index.docker.io/v1/".into() } else { registry.clone() }),
+                serveraddress: Some(if registry == "docker.io" {
+                    "https://index.docker.io/v1/".into()
+                } else {
+                    registry.clone()
+                }),
                 ..Default::default()
             });
             let docker = docker.clone();
@@ -585,12 +804,18 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, sec
                             // Only emit status changes per layer, not every byte of progress.
                             if last.get(&id) != Some(&status) {
                                 last.insert(id.clone(), status.clone());
-                                let line = if id.is_empty() { format!("{status}\r\n") } else { format!("{id}: {status}\r\n") };
+                                let line = if id.is_empty() {
+                                    format!("{status}\r\n")
+                                } else {
+                                    format!("{id}: {status}\r\n")
+                                };
                                 let _ = out.send(data_event(line.as_bytes()));
                             }
                         }
                         Err(e) => {
-                            let _ = out.send(TermEvent::Error { message: e.to_string() });
+                            let _ = out.send(TermEvent::Error {
+                                message: e.to_string(),
+                            });
                             break;
                         }
                     }
@@ -610,11 +835,18 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, sec
                         shell_quote(&registry),
                         shell_quote(&reference)
                     );
-                    ch.exec(true, format!("sh -c {} 2>&1", shell_quote(&script))).await?;
+                    ch.exec(true, format!("sh -c {} 2>&1", shell_quote(&script)))
+                        .await?;
                     ch.data(a.password.as_bytes()).await?;
                     ch.eof().await?;
                 }
-                None => ch.exec(true, format!("docker pull {} 2>&1", shell_quote(&reference))).await?,
+                None => {
+                    ch.exec(
+                        true,
+                        format!("docker pull {} 2>&1", shell_quote(&reference)),
+                    )
+                    .await?
+                }
             }
             let conn = conn.clone();
             tokio::spawn(async move {
@@ -622,7 +854,8 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, sec
                 let mut code = None;
                 while let Some(msg) = ch.wait().await {
                     match msg {
-                        russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. } => {
+                        russh::ChannelMsg::Data { data }
+                        | russh::ChannelMsg::ExtendedData { data, .. } => {
                             let text = String::from_utf8_lossy(&data).replace('\n', "\r\n");
                             let _ = out.send(data_event(text.as_bytes()));
                         }
@@ -635,14 +868,18 @@ pub async fn image_pull(app: AppHandle, endpoint: String, reference: String, sec
             })
         }
     };
-    app.state::<AppState>().add_task(task_id.clone(), h.abort_handle());
+    app.state::<AppState>()
+        .add_task(task_id.clone(), h.abort_handle());
     Ok(task_id)
 }
 
 // ---------- compose projects ----------
 
 /// Container ids and names belonging to a compose project.
-pub async fn project_containers(b: &DockerBackend, project: &str) -> Result<Vec<(String, String, String)>> {
+pub async fn project_containers(
+    b: &DockerBackend,
+    project: &str,
+) -> Result<Vec<(String, String, String)>> {
     valid_name(project, "")?;
     Ok(b.list(true)
         .await?
@@ -705,7 +942,12 @@ pub async fn stream_multi_logs(
     }
     let b = backend(&app, &endpoint).await?;
     let task_id = format!("mlogs:{}", uuid::Uuid::new_v4());
-    let width = containers.iter().map(|(_, n)| n.len()).max().unwrap_or(0).min(28);
+    let width = containers
+        .iter()
+        .map(|(_, n)| n.len())
+        .max()
+        .unwrap_or(0)
+        .min(28);
     let (tx, mut rx) = mpsc::channel::<(usize, Option<Vec<u8>>)>(256);
 
     let mut producers = Vec::new();
@@ -745,7 +987,8 @@ pub async fn stream_multi_logs(
                 tokio::spawn(async move {
                     while let Some(msg) = ch.wait().await {
                         match msg {
-                            russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. } => {
+                            russh::ChannelMsg::Data { data }
+                            | russh::ChannelMsg::ExtendedData { data, .. } => {
                                 if tx.send((idx, Some(data.to_vec()))).await.is_err() {
                                     let _ = ch.close().await;
                                     return;
@@ -774,7 +1017,12 @@ pub async fn stream_multi_logs(
         let mut open = n;
         let prefix = |i: usize| {
             let name: String = names[i].chars().take(width).collect();
-            format!("\x1b[{}m{:<w$} |\x1b[0m ", COLORS[i % COLORS.len()], name, w = width)
+            format!(
+                "\x1b[{}m{:<w$} |\x1b[0m ",
+                COLORS[i % COLORS.len()],
+                name,
+                w = width
+            )
         };
         // The tail of every container arrives in a burst: collect it briefly
         // and sort it by time, then pass new lines through as they come.
@@ -854,16 +1102,20 @@ pub async fn stream_multi_logs(
         }
         let _ = out.send(TermEvent::Exit { code: None });
     });
-    app.state::<AppState>().add_task(task_id.clone(), collector.abort_handle());
+    app.state::<AppState>()
+        .add_task(task_id.clone(), collector.abort_handle());
     Ok(task_id)
 }
 
 /// Split Docker's `--timestamps` prefix (`2026-11-10T05:11:13.123456789Z `)
 /// off a log line. Lines without one are returned unchanged.
 fn split_timestamp(line: &[u8]) -> (Option<&[u8]>, &[u8]) {
-    let Some(sp) = line.iter().position(|&c| c == b' ') else { return (None, line) };
+    let Some(sp) = line.iter().position(|&c| c == b' ') else {
+        return (None, line);
+    };
     let ts = &line[..sp];
-    let looks_like = ts.len() >= 20 && ts[0].is_ascii_digit() && ts.get(10) == Some(&b'T') && ts.ends_with(b"Z");
+    let looks_like =
+        ts.len() >= 20 && ts[0].is_ascii_digit() && ts.get(10) == Some(&b'T') && ts.ends_with(b"Z");
     if looks_like {
         (Some(ts), &line[sp + 1..])
     } else {
@@ -903,7 +1155,10 @@ mod tests {
         let (ts, rest) = split_timestamp(b"2026-11-10T05:11:13.1Z GET /api 200");
         assert_eq!(ts, Some(&b"2026-11-10T05:11:13.1Z"[..]));
         assert_eq!(rest, b"GET /api 200");
-        assert_eq!(split_timestamp(b"plain line here"), (None, &b"plain line here"[..]));
+        assert_eq!(
+            split_timestamp(b"plain line here"),
+            (None, &b"plain line here"[..])
+        );
         assert_eq!(split_timestamp(b"nospace"), (None, &b"nospace"[..]));
         // .12 is later than .1 even though it sorts first as raw text.
         assert!(sort_key(b"2026-11-10T05:11:13.12Z") > sort_key(b"2026-11-10T05:11:13.1Z"));
@@ -915,7 +1170,10 @@ mod tests {
         let out = "Deleted Volumes:\nabc\ndef\n\nTotal reclaimed space: 1.5GB\n";
         assert_eq!(reclaimed_from_cli(out).as_deref(), Some("1.5GB"));
         assert_eq!(cli_removed_lines(out), vec!["abc", "def"]);
-        assert_eq!(label_from_cli("a=1,com.docker.compose.project=web,b=2", PROJECT_LABEL).as_deref(), Some("web"));
+        assert_eq!(
+            label_from_cli("a=1,com.docker.compose.project=web,b=2", PROJECT_LABEL).as_deref(),
+            Some("web")
+        );
         assert!(valid_name("my_vol-1.x", "").is_ok());
         assert!(valid_name("bad name", "").is_err());
         assert!(valid_name("ghcr.io/org/img:1.2@sha256:abc", ":/@").is_ok());
@@ -938,16 +1196,30 @@ mod live {
     #[ignore]
     async fn local_daemon_roundtrip() {
         let docker = bollard::Docker::connect_with_local_defaults().unwrap();
-        let b = DockerBackend::Api { docker, _bridge: None };
+        let b = DockerBackend::Api {
+            docker,
+            _bridge: None,
+        };
 
         let df = b.disk_usage().await.unwrap();
-        println!("df: {:?}", df.iter().map(|r| (&r.kind, r.total, r.size)).collect::<Vec<_>>());
+        println!(
+            "df: {:?}",
+            df.iter()
+                .map(|r| (&r.kind, r.total, r.size))
+                .collect::<Vec<_>>()
+        );
         assert!(df.iter().any(|r| r.kind == "Images"));
 
         b.volume_create("shellport-it-vol").await.unwrap();
         let vols = b.volumes().await.unwrap();
-        assert!(vols.iter().any(|v| v.name == "shellport-it-vol" && v.used_by.is_empty()));
-        println!("volumes: {} ({} in use)", vols.len(), vols.iter().filter(|v| !v.used_by.is_empty()).count());
+        assert!(vols
+            .iter()
+            .any(|v| v.name == "shellport-it-vol" && v.used_by.is_empty()));
+        println!(
+            "volumes: {} ({} in use)",
+            vols.len(),
+            vols.iter().filter(|v| !v.used_by.is_empty()).count()
+        );
         b.volume_inspect("shellport-it-vol").await.unwrap();
         b.volume_remove("shellport-it-vol", false).await.unwrap();
 
@@ -956,11 +1228,19 @@ mod live {
         let n = nets.iter().find(|n| n.name == "shellport-it-net").unwrap();
         assert!(n.internal && !n.builtin);
         assert!(nets.iter().any(|n| n.name == "bridge" && n.builtin));
-        println!("networks: {:?}", nets.iter().map(|n| (&n.name, n.containers.len())).collect::<Vec<_>>());
+        println!(
+            "networks: {:?}",
+            nets.iter()
+                .map(|n| (&n.name, n.containers.len()))
+                .collect::<Vec<_>>()
+        );
         b.network_remove(&n.id).await.unwrap();
 
         let dev = project_containers(&b, "dev").await.unwrap();
-        println!("dev project: {:?}", dev.iter().map(|c| &c.1).collect::<Vec<_>>());
+        println!(
+            "dev project: {:?}",
+            dev.iter().map(|c| &c.1).collect::<Vec<_>>()
+        );
         assert!(!dev.is_empty());
         let n = project_action(&b, "dev", Action::Restart).await.unwrap();
         assert_eq!(n, dev.len());

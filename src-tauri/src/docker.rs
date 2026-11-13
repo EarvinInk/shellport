@@ -10,8 +10,8 @@ use crate::state::AppState;
 use crate::term::{data_event, TermEvent};
 use anyhow::{anyhow, bail, Context, Result};
 use bollard::query_parameters::{
-    ListContainersOptionsBuilder, ListImagesOptionsBuilder, LogsOptionsBuilder, RemoveContainerOptionsBuilder,
-    RestartContainerOptionsBuilder, StopContainerOptionsBuilder,
+    ListContainersOptionsBuilder, ListImagesOptionsBuilder, LogsOptionsBuilder,
+    RemoveContainerOptionsBuilder, RestartContainerOptionsBuilder, StopContainerOptionsBuilder,
 };
 use bollard::{Docker, API_DEFAULT_VERSION};
 use futures_util::StreamExt;
@@ -24,8 +24,13 @@ use tauri::{AppHandle, Manager};
 pub const LOCAL: &str = "local";
 
 pub enum DockerBackend {
-    Api { docker: Docker, _bridge: Option<Bridge> },
-    Cli { conn: Arc<SshConn> },
+    Api {
+        docker: Docker,
+        _bridge: Option<Bridge>,
+    },
+    Cli {
+        conn: Arc<SshConn>,
+    },
 }
 
 /// Local unix socket bridged to a remote socket; removed on drop.
@@ -85,7 +90,9 @@ pub enum Action {
 }
 
 fn runtime_dir() -> PathBuf {
-    std::env::var("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir())
+    std::env::var("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
 }
 
 async fn bridge(conn: Arc<SshConn>, remote_socket: String) -> Result<(Docker, Bridge)> {
@@ -100,7 +107,9 @@ async fn bridge(conn: Arc<SshConn>, remote_socket: String) -> Result<(Docker, Br
     let listener = tokio::net::UnixListener::bind(&sock)?;
     let task = tokio::spawn(async move {
         loop {
-            let Ok((mut s, _)) = listener.accept().await else { break };
+            let Ok((mut s, _)) = listener.accept().await else {
+                break;
+            };
             let conn = conn.clone();
             let remote = remote_socket.clone();
             tokio::spawn(async move {
@@ -137,29 +146,51 @@ pub async fn backend(app: &AppHandle, endpoint: &str) -> Result<Arc<DockerBacken
         docker.ping().await.context(
             "cannot reach the local Docker daemon (is it running and is your user in the `docker` group?)",
         )?;
-        DockerBackend::Api { docker, _bridge: None }
+        DockerBackend::Api {
+            docker,
+            _bridge: None,
+        }
     } else {
         let conn = crate::ssh::get_conn(app.clone(), endpoint.to_string(), 0).await?;
-        let socket = conn.host.docker_socket.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "/var/run/docker.sock".into());
+        let socket = conn
+            .host
+            .docker_socket
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/var/run/docker.sock".into());
         let api = async {
             let (docker, bridge) = bridge(conn.clone(), socket.clone()).await?;
             tokio::time::timeout(std::time::Duration::from_secs(8), docker.ping()).await??;
-            anyhow::Ok(DockerBackend::Api { docker, _bridge: Some(bridge) })
+            anyhow::Ok(DockerBackend::Api {
+                docker,
+                _bridge: Some(bridge),
+            })
         }
         .await;
         match api {
             Ok(b) => b,
             Err(e) => {
-                log::info!("docker socket tunnel unavailable ({e:#}); falling back to docker CLI over SSH");
+                log::info!(
+                    "docker socket tunnel unavailable ({e:#}); falling back to docker CLI over SSH"
+                );
                 conn.exec_capture("docker version --format '{{.Server.Version}}'")
                     .await
-                    .with_context(|| format!("Docker not reachable on {} via socket ({e:#}) or CLI", conn.host.name))?;
+                    .with_context(|| {
+                        format!(
+                            "Docker not reachable on {} via socket ({e:#}) or CLI",
+                            conn.host.name
+                        )
+                    })?;
                 DockerBackend::Cli { conn }
             }
         }
     };
     let b = Arc::new(b);
-    state.dockers.lock().await.insert(endpoint.to_string(), b.clone());
+    state
+        .dockers
+        .lock()
+        .await
+        .insert(endpoint.to_string(), b.clone());
     Ok(b)
 }
 
@@ -168,7 +199,11 @@ pub(crate) fn shell_quote(s: &str) -> String {
 }
 
 pub(crate) fn valid_ref(id: &str) -> Result<()> {
-    if !id.starts_with(|c: char| c.is_ascii_alphanumeric()) || !id.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c)) {
+    if !id.starts_with(|c: char| c.is_ascii_alphanumeric())
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
+    {
         bail!("invalid container reference");
     }
     Ok(())
@@ -179,7 +214,11 @@ impl DockerBackend {
         Ok(match self {
             DockerBackend::Api { docker, _bridge } => EndpointInfo {
                 endpoint: endpoint.into(),
-                mode: if _bridge.is_some() { "ssh-socket".into() } else { "local".into() },
+                mode: if _bridge.is_some() {
+                    "ssh-socket".into()
+                } else {
+                    "local".into()
+                },
                 server_version: docker.version().await.ok().and_then(|v| v.version),
             },
             DockerBackend::Cli { conn } => EndpointInfo {
@@ -207,7 +246,12 @@ impl DockerBackend {
                             .unwrap_or_default()
                             .into_iter()
                             .map(|p| match p.public_port {
-                                Some(pp) => format!("{}:{}->{}", p.ip.unwrap_or_default(), pp, p.private_port),
+                                Some(pp) => format!(
+                                    "{}:{}->{}",
+                                    p.ip.unwrap_or_default(),
+                                    pp,
+                                    p.private_port
+                                ),
                                 None => format!("{}", p.private_port),
                             })
                             .collect();
@@ -224,7 +268,9 @@ impl DockerBackend {
                             status: c.status.unwrap_or_default(),
                             created: c.created.unwrap_or(0),
                             ports,
-                            project: c.labels.and_then(|l| l.get("com.docker.compose.project").cloned()),
+                            project: c
+                                .labels
+                                .and_then(|l| l.get("com.docker.compose.project").cloned()),
                         }
                     })
                     .collect())
@@ -232,7 +278,9 @@ impl DockerBackend {
             DockerBackend::Cli { conn } => {
                 let flag = if all { "-a " } else { "" };
                 let out = conn
-                    .exec_capture(&format!("docker ps {flag}--no-trunc --format '{{{{json .}}}}'"))
+                    .exec_capture(&format!(
+                        "docker ps {flag}--no-trunc --format '{{{{json .}}}}'"
+                    ))
                     .await?;
                 let mut v = Vec::new();
                 for line in out.lines().filter(|l| !l.trim().is_empty()) {
@@ -246,7 +294,11 @@ impl DockerBackend {
                         state: s("State"),
                         status: s("Status"),
                         created: 0,
-                        ports: s("Ports").split(", ").filter(|p| !p.is_empty()).map(String::from).collect(),
+                        ports: s("Ports")
+                            .split(", ")
+                            .filter(|p| !p.is_empty())
+                            .map(String::from)
+                            .collect(),
                         project: labels
                             .split(',')
                             .find_map(|kv| kv.strip_prefix("com.docker.compose.project="))
@@ -261,14 +313,24 @@ impl DockerBackend {
     pub async fn images(&self) -> Result<Vec<ImageInfo>> {
         match self {
             DockerBackend::Api { docker, .. } => {
-                let list = docker.list_images(Some(ListImagesOptionsBuilder::new().all(false).build())).await?;
+                let list = docker
+                    .list_images(Some(ListImagesOptionsBuilder::new().all(false).build()))
+                    .await?;
                 Ok(list
                     .into_iter()
-                    .map(|i| ImageInfo { id: i.id, tags: i.repo_tags, size: i.size, created: i.created, containers: i.containers })
+                    .map(|i| ImageInfo {
+                        id: i.id,
+                        tags: i.repo_tags,
+                        size: i.size,
+                        created: i.created,
+                        containers: i.containers,
+                    })
                     .collect())
             }
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture("docker images --no-trunc --format '{{json .}}'").await?;
+                let out = conn
+                    .exec_capture("docker images --no-trunc --format '{{json .}}'")
+                    .await?;
                 let mut v = Vec::new();
                 for line in out.lines().filter(|l| !l.trim().is_empty()) {
                     let j: serde_json::Value = serde_json::from_str(line)?;
@@ -292,12 +354,33 @@ impl DockerBackend {
             DockerBackend::Api { docker, .. } => {
                 match action {
                     Action::Start => docker.start_container(id, None).await?,
-                    Action::Stop => docker.stop_container(id, Some(StopContainerOptionsBuilder::new().t(10).build())).await?,
-                    Action::Restart => docker.restart_container(id, Some(RestartContainerOptionsBuilder::new().t(10).build())).await?,
+                    Action::Stop => {
+                        docker
+                            .stop_container(
+                                id,
+                                Some(StopContainerOptionsBuilder::new().t(10).build()),
+                            )
+                            .await?
+                    }
+                    Action::Restart => {
+                        docker
+                            .restart_container(
+                                id,
+                                Some(RestartContainerOptionsBuilder::new().t(10).build()),
+                            )
+                            .await?
+                    }
                     Action::Pause => docker.pause_container(id).await?,
                     Action::Unpause => docker.unpause_container(id).await?,
                     Action::Kill => docker.kill_container(id, None).await?,
-                    Action::Remove => docker.remove_container(id, Some(RemoveContainerOptionsBuilder::new().force(true).build())).await?,
+                    Action::Remove => {
+                        docker
+                            .remove_container(
+                                id,
+                                Some(RemoveContainerOptionsBuilder::new().force(true).build()),
+                            )
+                            .await?
+                    }
                 }
                 Ok(())
             }
@@ -311,7 +394,8 @@ impl DockerBackend {
                     Action::Kill => "kill",
                     Action::Remove => "rm -f",
                 };
-                conn.exec_capture(&format!("docker {verb} {}", shell_quote(id))).await?;
+                conn.exec_capture(&format!("docker {verb} {}", shell_quote(id)))
+                    .await?;
                 Ok(())
             }
         }
@@ -320,9 +404,13 @@ impl DockerBackend {
     pub async fn inspect(&self, id: &str) -> Result<serde_json::Value> {
         valid_ref(id)?;
         match self {
-            DockerBackend::Api { docker, .. } => Ok(serde_json::to_value(docker.inspect_container(id, None).await?)?),
+            DockerBackend::Api { docker, .. } => Ok(serde_json::to_value(
+                docker.inspect_container(id, None).await?,
+            )?),
             DockerBackend::Cli { conn } => {
-                let out = conn.exec_capture(&format!("docker inspect {}", shell_quote(id))).await?;
+                let out = conn
+                    .exec_capture(&format!("docker inspect {}", shell_quote(id)))
+                    .await?;
                 let v: serde_json::Value = serde_json::from_str(&out)?;
                 Ok(v.get(0).cloned().unwrap_or(v))
             }
@@ -364,7 +452,9 @@ pub async fn stream_logs(
                             }
                         }
                         Err(e) => {
-                            let _ = out.send(TermEvent::Error { message: e.to_string() });
+                            let _ = out.send(TermEvent::Error {
+                                message: e.to_string(),
+                            });
                             break;
                         }
                     }
@@ -387,7 +477,8 @@ pub async fn stream_logs(
                 let _keep = conn;
                 while let Some(msg) = ch.wait().await {
                     match msg {
-                        russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. } => {
+                        russh::ChannelMsg::Data { data }
+                        | russh::ChannelMsg::ExtendedData { data, .. } => {
                             if out.send(data_event(&data)).is_err() {
                                 let _ = ch.close().await;
                                 return;
@@ -401,7 +492,8 @@ pub async fn stream_logs(
             })
         }
     };
-    app.state::<AppState>().add_task(task_id.clone(), h.abort_handle());
+    app.state::<AppState>()
+        .add_task(task_id.clone(), h.abort_handle());
     Ok(task_id)
 }
 
@@ -422,18 +514,44 @@ pub async fn exec_shell(
         DockerBackend::Api { docker, .. } => {
             let cmd = match shell.filter(|s| !s.trim().is_empty()) {
                 Some(s) => vec![s],
-                None => vec!["/bin/sh".into(), "-c".into(), "command -v bash >/dev/null && exec bash || exec sh".into()],
+                None => vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "command -v bash >/dev/null && exec bash || exec sh".into(),
+                ],
             };
-            crate::term::open_docker_exec(app.clone(), docker.clone(), id, cmd, user, cols, rows, out).await
+            crate::term::open_docker_exec(
+                app.clone(),
+                docker.clone(),
+                id,
+                cmd,
+                user,
+                cols,
+                rows,
+                out,
+            )
+            .await
         }
         DockerBackend::Cli { conn } => {
-            let user_flag = user.filter(|u| !u.is_empty()).map(|u| format!("-u {} ", shell_quote(&u))).unwrap_or_default();
+            let user_flag = user
+                .filter(|u| !u.is_empty())
+                .map(|u| format!("-u {} ", shell_quote(&u)))
+                .unwrap_or_default();
             let inner = match shell.filter(|s| !s.trim().is_empty()) {
                 Some(s) => shell_quote(&s),
                 None => "sh -c 'command -v bash >/dev/null && exec bash || exec sh'".into(),
             };
             let cmd = format!("docker exec -it {user_flag}{} {inner}", shell_quote(&id));
-            crate::term::open_ssh(app.clone(), conn.host.id.clone(), cols, rows, Some(cmd), None, out).await
+            crate::term::open_ssh(
+                app.clone(),
+                conn.host.id.clone(),
+                cols,
+                rows,
+                Some(cmd),
+                None,
+                out,
+            )
+            .await
         }
     }
 }

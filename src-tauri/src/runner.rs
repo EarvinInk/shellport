@@ -19,10 +19,18 @@ const MAX_OUTPUT: usize = 64 * 1024;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RunEvent {
     #[serde(rename_all = "camelCase")]
-    Started { host_id: String },
-    Done { result: HostResult },
+    Started {
+        host_id: String,
+    },
+    Done {
+        result: HostResult,
+    },
     #[serde(rename_all = "camelCase")]
-    Finished { ok: usize, failed: usize, activity_id: String },
+    Finished {
+        ok: usize,
+        failed: usize,
+        activity_id: String,
+    },
 }
 
 /// Exit status and combined output of one command; output is capped.
@@ -55,7 +63,9 @@ pub async fn exec_collect(conn: &crate::ssh::SshConn, cmd: &str) -> Result<(Opti
 
 /// `{{host}}`, `{{user}}` and `{{name}}` filled in for one host.
 pub fn per_host(cmd: &str, host: &crate::store::hosts::Host) -> String {
-    cmd.replace("{{host}}", &host.hostname).replace("{{user}}", &host.username).replace("{{name}}", &host.name)
+    cmd.replace("{{host}}", &host.hostname)
+        .replace("{{user}}", &host.username)
+        .replace("{{name}}", &host.name)
 }
 
 /// "web-1, web-2, db-1 +4": which hosts a run touched.
@@ -64,7 +74,11 @@ fn hosts_label(results: &[HostResult]) -> String {
     names.sort_unstable();
     let more = names.len().saturating_sub(3);
     let shown = names[..names.len().min(3)].join(", ");
-    if more > 0 { format!("{shown} +{more}") } else { shown }
+    if more > 0 {
+        format!("{shown} +{more}")
+    } else {
+        shown
+    }
 }
 
 pub fn task_id(run_id: &str) -> String {
@@ -73,7 +87,14 @@ pub fn task_id(run_id: &str) -> String {
 
 /// Start a run; returns at once with the run id (cancel with `task_cancel("run:<id>")`).
 /// Production hosts must be acknowledged explicitly (app rule 2).
-pub fn start(app: AppHandle, host_ids: Vec<String>, command: String, timeout_secs: u64, confirmed_production: bool, out: Channel<RunEvent>) -> Result<String> {
+pub fn start(
+    app: AppHandle,
+    host_ids: Vec<String>,
+    command: String,
+    timeout_secs: u64,
+    confirmed_production: bool,
+    out: Channel<RunEvent>,
+) -> Result<String> {
     if command.trim().is_empty() {
         bail!("the command is empty");
     }
@@ -83,11 +104,21 @@ pub fn start(app: AppHandle, host_ids: Vec<String>, command: String, timeout_sec
     let state = app.state::<AppState>();
     let hosts: Vec<crate::store::hosts::Host> = {
         let store = state.hosts.lock();
-        host_ids.iter().map(|id| store.get(id)).collect::<Result<_>>()?
+        host_ids
+            .iter()
+            .map(|id| store.get(id))
+            .collect::<Result<_>>()?
     };
-    let prod: Vec<&str> = hosts.iter().filter(|h| h.production).map(|h| h.name.as_str()).collect();
+    let prod: Vec<&str> = hosts
+        .iter()
+        .filter(|h| h.production)
+        .map(|h| h.name.as_str())
+        .collect();
     if !prod.is_empty() && !confirmed_production {
-        return Err(anyhow!("this run includes production hosts ({}); confirm to continue", prod.join(", ")));
+        return Err(anyhow!(
+            "this run includes production hosts ({}); confirm to continue",
+            prod.join(", ")
+        ));
     }
     let run_id = uuid::Uuid::new_v4().to_string();
     let timeout = Duration::from_secs(timeout_secs.clamp(1, 3600));
@@ -99,7 +130,9 @@ pub fn start(app: AppHandle, host_ids: Vec<String>, command: String, timeout_sec
         let results: Vec<HostResult> = futures_util::stream::iter(hosts.into_iter().map(|host| {
             let (app, cmd, out) = (app2.clone(), cmd.clone(), out.clone());
             async move {
-                let _ = out.send(RunEvent::Started { host_id: host.id.clone() });
+                let _ = out.send(RunEvent::Started {
+                    host_id: host.id.clone(),
+                });
                 let t0 = Instant::now();
                 let cmd = per_host(&cmd, &host);
                 let res = tokio::time::timeout(timeout, async {
@@ -110,9 +143,20 @@ pub fn start(app: AppHandle, host_ids: Vec<String>, command: String, timeout_sec
                 let (ok, exit_code, output) = match res {
                     Ok(Ok((code, text))) => (code == Some(0), code, text),
                     Ok(Err(e)) => (false, None, format!("{e:#}")),
-                    Err(_) => (false, None, format!("timed out after {}s", timeout.as_secs())),
+                    Err(_) => (
+                        false,
+                        None,
+                        format!("timed out after {}s", timeout.as_secs()),
+                    ),
                 };
-                let r = HostResult { host_id: host.id, host_name: host.name, ok, exit_code, output, duration_ms: t0.elapsed().as_millis() as u64 };
+                let r = HostResult {
+                    host_id: host.id,
+                    host_name: host.name,
+                    ok,
+                    exit_code,
+                    output,
+                    duration_ms: t0.elapsed().as_millis() as u64,
+                };
                 let _ = out.send(RunEvent::Done { result: r.clone() });
                 r
             }
@@ -122,13 +166,25 @@ pub fn start(app: AppHandle, host_ids: Vec<String>, command: String, timeout_sec
         .await;
         let ok = results.iter().filter(|r| r.ok).count();
         let failed = results.len() - ok;
-        let mut e = ActivityEntry::new(ActivityKind::MultiRun, hosts_label(&results), &cmd, failed == 0);
+        let mut e = ActivityEntry::new(
+            ActivityKind::MultiRun,
+            hosts_label(&results),
+            &cmd,
+            failed == 0,
+        );
         e.duration_ms = Some(started.elapsed().as_millis() as u64);
         e.count = Some(results.len() as u64);
-        e.results = results.into_iter().map(|mut r| (r.output = crate::activity::clip(&r.output), r).1).collect();
+        e.results = results
+            .into_iter()
+            .map(|mut r| (r.output = crate::activity::clip(&r.output), r).1)
+            .collect();
         let id = e.id.clone();
         app2.state::<AppState>().activity.add(e);
-        let _ = out.send(RunEvent::Finished { ok, failed, activity_id: id });
+        let _ = out.send(RunEvent::Finished {
+            ok,
+            failed,
+            activity_id: id,
+        });
         app2.state::<AppState>().tasks.lock().remove(&tid);
     });
     state.add_task(task_id(&run_id), h.abort_handle());
@@ -140,19 +196,31 @@ mod tests {
     use super::*;
 
     fn result(name: &str) -> HostResult {
-        HostResult { host_id: name.into(), host_name: name.into(), ok: true, exit_code: Some(0), output: String::new(), duration_ms: 0 }
+        HostResult {
+            host_id: name.into(),
+            host_name: name.into(),
+            ok: true,
+            exit_code: Some(0),
+            output: String::new(),
+            duration_ms: 0,
+        }
     }
 
     #[test]
     fn labels_and_placeholders() {
-        let rs: Vec<_> = ["web-2", "db-1", "web-1", "cache", "web-3"].map(result).into();
+        let rs: Vec<_> = ["web-2", "db-1", "web-1", "cache", "web-3"]
+            .map(result)
+            .into();
         assert_eq!(hosts_label(&rs), "cache, db-1, web-1 +2");
         assert_eq!(hosts_label(&rs[..1]), "web-2");
         let mut h: crate::store::hosts::Host = serde_json::from_value(serde_json::json!({
             "id": "h", "name": "web-1", "hostname": "10.0.0.5", "port": 22, "username": "deploy", "auth": {"type": "agent"}
         }))
         .unwrap();
-        assert_eq!(per_host("ssh {{user}}@{{host}} # {{name}} {{other}}", &h), "ssh deploy@10.0.0.5 # web-1 {{other}}");
+        assert_eq!(
+            per_host("ssh {{user}}@{{host}} # {{name}} {{other}}", &h),
+            "ssh deploy@10.0.0.5 # web-1 {{other}}"
+        );
         h.name = "x".into();
         assert_eq!(per_host("{{name}}", &h), "x");
     }

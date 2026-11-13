@@ -33,7 +33,9 @@ const MAX_PER_HOST: usize = 2;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Endpoint {
-    Local { path: String },
+    Local {
+        path: String,
+    },
     #[serde(rename_all = "camelCase")]
     Remote {
         host_id: String,
@@ -155,7 +157,11 @@ fn emit(app: &AppHandle, v: TransferView) {
 }
 
 fn name_of(path: &str) -> String {
-    path.trim_end_matches('/').rsplit('/').find(|n| !n.is_empty()).unwrap_or("transfer").to_string()
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .find(|n| !n.is_empty())
+        .unwrap_or("transfer")
+        .to_string()
 }
 
 impl Queue {
@@ -164,7 +170,11 @@ impl Queue {
     }
 
     fn with<R>(&self, id: &str, f: impl FnOnce(&mut Entry) -> R) -> Option<R> {
-        self.entries.lock().iter_mut().find(|e| e.view.id == id).map(f)
+        self.entries
+            .lock()
+            .iter_mut()
+            .find(|e| e.view.id == id)
+            .map(f)
     }
 }
 
@@ -221,7 +231,10 @@ fn startable(entries: &[(TState, bool, Vec<String>)]) -> Vec<usize> {
         if *s != TState::Queued {
             continue;
         }
-        let fits = running < MAX_RUNNING && hosts.iter().all(|h| per_host.get(h.as_str()).copied().unwrap_or(0) < MAX_PER_HOST);
+        let fits = running < MAX_RUNNING
+            && hosts
+                .iter()
+                .all(|h| per_host.get(h.as_str()).copied().unwrap_or(0) < MAX_PER_HOST);
         if *force || fits {
             running += 1;
             for h in hosts {
@@ -234,7 +247,11 @@ fn startable(entries: &[(TState, bool, Vec<String>)]) -> Vec<usize> {
 }
 
 fn hosts_of(v: &TransferView) -> Vec<String> {
-    let mut h: Vec<String> = [v.source.host(), v.dest_dir.host()].into_iter().flatten().map(String::from).collect();
+    let mut h: Vec<String> = [v.source.host(), v.dest_dir.host()]
+        .into_iter()
+        .flatten()
+        .map(String::from)
+        .collect();
     h.dedup();
     h
 }
@@ -245,7 +262,10 @@ fn pump(app: &AppHandle) {
     let mut started = Vec::new();
     {
         let mut entries = q.entries.lock();
-        let shape: Vec<_> = entries.iter().map(|e| (e.view.state, e.force, hosts_of(&e.view))).collect();
+        let shape: Vec<_> = entries
+            .iter()
+            .map(|e| (e.view.state, e.force, hosts_of(&e.view)))
+            .collect();
         for i in startable(&shape) {
             let e = &mut entries[i];
             e.view.state = TState::Running;
@@ -271,45 +291,59 @@ fn pump(app: &AppHandle) {
 /// Record how a run ended (only once: a later call for the same run does nothing).
 fn finish(app: &AppHandle, id: &str, res: Result<()>) {
     let state = app.state::<AppState>();
-    let Some((view, record, partial)) = state.transfers.with(id, |e| {
-        if e.view.state != TState::Running {
-            return None;
-        }
-        e.handle = None;
-        e.view.speed = 0;
-        e.view.eta_secs = None;
-        e.view.current = None;
-        let stop = res.as_ref().err().and_then(|err| err.downcast_ref::<Stopped>());
-        let mut partial = None;
-        let record = match (&res, stop) {
-            (Ok(()), _) => {
-                e.view.state = TState::Done;
-                true
+    let Some((view, record, partial)) = state
+        .transfers
+        .with(id, |e| {
+            if e.view.state != TState::Running {
+                return None;
             }
-            (_, Some(Stopped::Paused)) => {
-                e.view.state = TState::Paused;
-                false
-            }
-            (_, Some(Stopped::Cancelled)) => {
-                e.view.state = TState::Cancelled;
-                partial = in_progress(e);
-                true
-            }
-            (_, Some(Stopped::Exists(n))) => {
-                // Nothing written yet: the UI offers Overwrite, which retries.
-                e.view.state = TState::Failed;
-                e.view.would_overwrite = Some(*n);
-                e.view.error = Some(format!("{n} file{} in the destination would be overwritten", if *n == 1 { "" } else { "s" }));
-                false
-            }
-            (Err(err), None) => {
-                e.view.state = TState::Failed;
-                e.view.error = Some(format!("{err:#}"));
-                true
-            }
-        };
-        Some((e.view.clone(), record.then(|| e.started.map(|s| s.elapsed())).flatten(), partial))
-    }).flatten() else {
+            e.handle = None;
+            e.view.speed = 0;
+            e.view.eta_secs = None;
+            e.view.current = None;
+            let stop = res
+                .as_ref()
+                .err()
+                .and_then(|err| err.downcast_ref::<Stopped>());
+            let mut partial = None;
+            let record = match (&res, stop) {
+                (Ok(()), _) => {
+                    e.view.state = TState::Done;
+                    true
+                }
+                (_, Some(Stopped::Paused)) => {
+                    e.view.state = TState::Paused;
+                    false
+                }
+                (_, Some(Stopped::Cancelled)) => {
+                    e.view.state = TState::Cancelled;
+                    partial = in_progress(e);
+                    true
+                }
+                (_, Some(Stopped::Exists(n))) => {
+                    // Nothing written yet: the UI offers Overwrite, which retries.
+                    e.view.state = TState::Failed;
+                    e.view.would_overwrite = Some(*n);
+                    e.view.error = Some(format!(
+                        "{n} file{} in the destination would be overwritten",
+                        if *n == 1 { "" } else { "s" }
+                    ));
+                    false
+                }
+                (Err(err), None) => {
+                    e.view.state = TState::Failed;
+                    e.view.error = Some(format!("{err:#}"));
+                    true
+                }
+            };
+            Some((
+                e.view.clone(),
+                record.then(|| e.started.map(|s| s.elapsed())).flatten(),
+                partial,
+            ))
+        })
+        .flatten()
+    else {
         return;
     };
     if let Some((dest, path)) = partial {
@@ -325,7 +359,12 @@ fn finish(app: &AppHandle, id: &str, res: Result<()>) {
 
 /// The destination file a stopped transfer was part-way through, if any.
 fn in_progress(e: &Entry) -> Option<(Endpoint, String)> {
-    let f = e.plan.as_ref()?.files.iter().find(|f| !f.finished && f.done > 0)?;
+    let f = e
+        .plan
+        .as_ref()?
+        .files
+        .iter()
+        .find(|f| !f.finished && f.done > 0)?;
     Some((e.view.dest_dir.clone(), f.dst.clone()))
 }
 
@@ -344,17 +383,55 @@ async fn remove_partial(app: &AppHandle, dest: &Endpoint, path: &str) {
 
 fn record_activity(app: &AppHandle, v: &TransferView, took: Duration) {
     let state = app.state::<AppState>();
-    let host_name = |id: &str| state.hosts.lock().get(id).map(|h| h.name).unwrap_or_else(|_| "?".into());
+    let host_name = |id: &str| {
+        state
+            .hosts
+            .lock()
+            .get(id)
+            .map(|h| h.name)
+            .unwrap_or_else(|_| "?".into())
+    };
     let (title, what, host) = match (&v.source, &v.dest_dir) {
-        (Endpoint::Remote { host_id, path, .. }, Endpoint::Local { path: d }) => (host_name(host_id), format!("Download {path} → {d}"), host_id.clone()),
-        (Endpoint::Local { path }, Endpoint::Remote { host_id, path: d, .. }) => (host_name(host_id), format!("Upload {path} → {d}"), host_id.clone()),
-        (Endpoint::Remote { host_id: a, path, .. }, Endpoint::Remote { host_id: b, path: d, .. }) => {
-            (format!("{} → {}", host_name(a), host_name(b)), format!("Copy {}:{path} → {}:{d}", host_name(a), host_name(b)), a.clone())
+        (Endpoint::Remote { host_id, path, .. }, Endpoint::Local { path: d }) => (
+            host_name(host_id),
+            format!("Download {path} → {d}"),
+            host_id.clone(),
+        ),
+        (
+            Endpoint::Local { path },
+            Endpoint::Remote {
+                host_id, path: d, ..
+            },
+        ) => (
+            host_name(host_id),
+            format!("Upload {path} → {d}"),
+            host_id.clone(),
+        ),
+        (
+            Endpoint::Remote {
+                host_id: a, path, ..
+            },
+            Endpoint::Remote {
+                host_id: b,
+                path: d,
+                ..
+            },
+        ) => (
+            format!("{} → {}", host_name(a), host_name(b)),
+            format!("Copy {}:{path} → {}:{d}", host_name(a), host_name(b)),
+            a.clone(),
+        ),
+        (Endpoint::Local { path }, Endpoint::Local { path: d }) => {
+            ("local".into(), format!("Copy {path} → {d}"), String::new())
         }
-        (Endpoint::Local { path }, Endpoint::Local { path: d }) => ("local".into(), format!("Copy {path} → {d}"), String::new()),
     };
     let ok = v.state == TState::Done;
-    let mut e = crate::activity::ActivityEntry::new(crate::activity::ActivityKind::Transfer, title, &what, ok);
+    let mut e = crate::activity::ActivityEntry::new(
+        crate::activity::ActivityKind::Transfer,
+        title,
+        &what,
+        ok,
+    );
     e.host_id = (!host.is_empty()).then_some(host);
     e.message = match v.state {
         TState::Cancelled => Some("cancelled".into()),
@@ -369,17 +446,31 @@ fn record_activity(app: &AppHandle, v: &TransferView, took: Duration) {
 /// (a hung connection never reaches the next chunk).
 fn stop(app: &AppHandle, id: &str, how: u8) {
     let q = &app.state::<AppState>().transfers;
-    let Some(state) = q.with(id, |e| e.view.state) else { return };
+    let Some(state) = q.with(id, |e| e.view.state) else {
+        return;
+    };
     match state {
         TState::Running => {
             q.with(id, |e| e.control.store(how, Ordering::SeqCst));
             let (a, id) = (app.clone(), id.to_string());
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                let h = a.state::<AppState>().transfers.with(&id, |e| (e.view.state == TState::Running).then(|| e.handle.clone()).flatten()).flatten();
+                let h = a
+                    .state::<AppState>()
+                    .transfers
+                    .with(&id, |e| {
+                        (e.view.state == TState::Running)
+                            .then(|| e.handle.clone())
+                            .flatten()
+                    })
+                    .flatten();
                 if let Some(h) = h {
                     h.abort();
-                    let why = if how == PAUSE { Stopped::Paused } else { Stopped::Cancelled };
+                    let why = if how == PAUSE {
+                        Stopped::Paused
+                    } else {
+                        Stopped::Cancelled
+                    };
                     finish(&a, &id, Err(why.into()));
                 }
             });
@@ -439,13 +530,21 @@ pub fn resume(app: &AppHandle, id: &str, overwrite: bool) {
 
 /// Start a queued transfer now, past the queue limits.
 pub fn start_now(app: &AppHandle, id: &str) {
-    app.state::<AppState>().transfers.with(id, |e| e.force = true);
+    app.state::<AppState>()
+        .transfers
+        .with(id, |e| e.force = true);
     pump(app);
 }
 
 /// Drop finished transfers from the list (all of them, or the given ones).
 pub fn clear(app: &AppHandle, ids: Option<Vec<String>>) {
-    app.state::<AppState>().transfers.entries.lock().retain(|e| !(e.view.state.finished() && ids.as_ref().is_none_or(|ids| ids.contains(&e.view.id))));
+    app.state::<AppState>()
+        .transfers
+        .entries
+        .lock()
+        .retain(|e| {
+            !(e.view.state.finished() && ids.as_ref().is_none_or(|ids| ids.contains(&e.view.id)))
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -453,16 +552,39 @@ pub fn clear(app: &AppHandle, ids: Option<Vec<String>>) {
 
 async fn session_for(app: &AppHandle, ep: &Endpoint) -> Result<Option<Arc<SftpSession>>> {
     Ok(match ep {
-        Endpoint::Remote { host_id, sudo, .. } => Some(crate::sftp::session_as(app, host_id, *sudo).await?),
+        Endpoint::Remote { host_id, sudo, .. } => {
+            Some(crate::sftp::session_as(app, host_id, *sudo).await?)
+        }
         Endpoint::Local { .. } => None,
     })
 }
 
 async fn execute(app: &AppHandle, id: &str) -> Result<()> {
     let q = &app.state::<AppState>().transfers;
-    let (source, dest_dir, overwrite, plan, control) =
-        q.with(id, |e| (e.view.source.clone(), e.view.dest_dir.clone(), e.overwrite, e.plan.clone(), e.control.clone())).context("transfer not found")?;
-    if let (Endpoint::Remote { host_id: a, path: sp, .. }, Endpoint::Remote { host_id: b, path: dd, .. }) = (&source, &dest_dir) {
+    let (source, dest_dir, overwrite, plan, control) = q
+        .with(id, |e| {
+            (
+                e.view.source.clone(),
+                e.view.dest_dir.clone(),
+                e.overwrite,
+                e.plan.clone(),
+                e.control.clone(),
+            )
+        })
+        .context("transfer not found")?;
+    if let (
+        Endpoint::Remote {
+            host_id: a,
+            path: sp,
+            ..
+        },
+        Endpoint::Remote {
+            host_id: b,
+            path: dd,
+            ..
+        },
+    ) = (&source, &dest_dir)
+    {
         if a == b && join(dd, &name_of(sp)) == sp.trim_end_matches('/') {
             bail!("source and destination are the same");
         }
@@ -511,8 +633,12 @@ async fn execute(app: &AppHandle, id: &str) -> Result<()> {
             continue;
         }
         let job = plan.files[i].clone();
-        let mut reader = open_src(&job, src_s.as_deref()).await.with_context(|| format!("reading {}", job.src))?;
-        let mut writer = open_dst(&job, dst_s.as_deref(), local_base.as_deref()).await.with_context(|| format!("writing {}", job.dst))?;
+        let mut reader = open_src(&job, src_s.as_deref())
+            .await
+            .with_context(|| format!("reading {}", job.src))?;
+        let mut writer = open_dst(&job, dst_s.as_deref(), local_base.as_deref())
+            .await
+            .with_context(|| format!("writing {}", job.dst))?;
         let mut done = job.done;
         loop {
             match control.load(Ordering::SeqCst) {
@@ -526,16 +652,25 @@ async fn execute(app: &AppHandle, id: &str) -> Result<()> {
                 }
                 _ => {}
             }
-            let n = reader.read(&mut buf).await.with_context(|| format!("reading {}", job.src))?;
+            let n = reader
+                .read(&mut buf)
+                .await
+                .with_context(|| format!("reading {}", job.src))?;
             if n == 0 {
                 break;
             }
-            writer.write_all(&buf[..n]).await.with_context(|| format!("writing {}", job.dst))?;
+            writer
+                .write_all(&buf[..n])
+                .await
+                .with_context(|| format!("writing {}", job.dst))?;
             done += n as u64;
             plan.files[i].done = done;
             progress(app, id, i, done, false, &job.src);
         }
-        writer.shutdown().await.with_context(|| format!("finishing {}", job.dst))?;
+        writer
+            .shutdown()
+            .await
+            .with_context(|| format!("finishing {}", job.dst))?;
         copy_mode(&job, src_s.as_deref(), dst_s.as_deref()).await;
         plan.files[i].finished = true;
         progress(app, id, i, done, true, &job.src);
@@ -560,7 +695,8 @@ fn progress(app: &AppHandle, id: &str, file: usize, done: u64, finished: bool, n
             e.samples.pop_front();
         }
         e.view.speed = speed(&e.samples);
-        e.view.eta_secs = (e.view.speed > 0).then(|| e.view.total.saturating_sub(bytes) / e.view.speed);
+        e.view.eta_secs =
+            (e.view.speed > 0).then(|| e.view.total.saturating_sub(bytes) / e.view.speed);
         if finished || now.duration_since(e.last_emit) > Duration::from_millis(150) {
             e.last_emit = now;
             return Some(e.view.clone());
@@ -574,7 +710,9 @@ fn progress(app: &AppHandle, id: &str, file: usize, done: u64, finished: bool, n
 
 /// Bytes per second between the oldest and newest sample.
 fn speed(samples: &VecDeque<(Instant, u64)>) -> u64 {
-    let (Some(a), Some(b)) = (samples.front(), samples.back()) else { return 0 };
+    let (Some(a), Some(b)) = (samples.front(), samples.back()) else {
+        return 0;
+    };
     let dt = b.0.duration_since(a.0).as_secs_f64();
     if dt < 0.5 {
         return 0;
@@ -586,20 +724,31 @@ fn speed(samples: &VecDeque<(Instant, u64)>) -> u64 {
 /// the start if the source changed since it was planned.
 fn resume_offset(job: &FileJob, src_now: Option<(u64, Option<u64>)>, dst_len: Option<u64>) -> u64 {
     match src_now {
-        Some((size, mtime)) if size == job.size && mtime == job.mtime => job.done.min(dst_len.unwrap_or(0)),
+        Some((size, mtime)) if size == job.size && mtime == job.mtime => {
+            job.done.min(dst_len.unwrap_or(0))
+        }
         _ => 0,
     }
 }
 
 async fn stat(path: &str, s: Option<&SftpSession>) -> Option<(u64, Option<u64>)> {
     match s {
-        Some(s) => s.metadata(path).await.ok().map(|m| (m.size.unwrap_or(0), m.mtime.map(u64::from))),
-        None => std::fs::metadata(path).ok().map(|m| (m.len(), mtime_of(&m))),
+        Some(s) => s
+            .metadata(path)
+            .await
+            .ok()
+            .map(|m| (m.size.unwrap_or(0), m.mtime.map(u64::from))),
+        None => std::fs::metadata(path)
+            .ok()
+            .map(|m| (m.len(), mtime_of(&m))),
     }
 }
 
 fn mtime_of(m: &std::fs::Metadata) -> Option<u64> {
-    m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs())
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
 }
 
 async fn refresh_offsets(plan: &mut Plan, src: Option<&SftpSession>, dst: Option<&SftpSession>) {
@@ -611,15 +760,28 @@ async fn refresh_offsets(plan: &mut Plan, src: Option<&SftpSession>, dst: Option
 }
 
 /// List what to copy: every file under the source, with its destination path.
-async fn make_plan(source: &Endpoint, dest_dir: &Endpoint, src: Option<&SftpSession>) -> Result<Plan> {
+async fn make_plan(
+    source: &Endpoint,
+    dest_dir: &Endpoint,
+    src: Option<&SftpSession>,
+) -> Result<Plan> {
     let name = name_of(source.path());
     safe_component(&name)?;
     let dest_root = match dest_dir {
-        Endpoint::Local { path } => crate::paths::expand_tilde(path).join(&name).to_string_lossy().into_owned(),
+        Endpoint::Local { path } => crate::paths::expand_tilde(path)
+            .join(&name)
+            .to_string_lossy()
+            .into_owned(),
         Endpoint::Remote { path, .. } => join(path, &name),
     };
     let local_dest = matches!(dest_dir, Endpoint::Local { .. });
-    let dst_join = |base: &str, n: &str| if local_dest { PathBuf::from(base).join(n).to_string_lossy().into_owned() } else { join(base, n) };
+    let dst_join = |base: &str, n: &str| {
+        if local_dest {
+            PathBuf::from(base).join(n).to_string_lossy().into_owned()
+        } else {
+            join(base, n)
+        }
+    };
     let mut plan = Plan::default();
     // (source path, destination path, depth)
     let mut stack = vec![(source.path().to_string(), dest_root, 0usize)];
@@ -631,10 +793,22 @@ async fn make_plan(source: &Endpoint, dest_dir: &Endpoint, src: Option<&SftpSess
             Some(s) => {
                 // lstat: a symlinked folder is not followed (avoids loops);
                 // a symlink to a file copies that file's contents.
-                let lm = s.symlink_metadata(sp.as_str()).await.with_context(|| format!("reading {sp}"))?;
+                let lm = s
+                    .symlink_metadata(sp.as_str())
+                    .await
+                    .with_context(|| format!("reading {sp}"))?;
                 let is_link = lm.file_type().is_symlink();
-                let m = if is_link { s.metadata(sp.as_str()).await? } else { lm };
-                (m.is_dir(), is_link, m.size.unwrap_or(0), m.mtime.map(u64::from))
+                let m = if is_link {
+                    s.metadata(sp.as_str()).await?
+                } else {
+                    lm
+                };
+                (
+                    m.is_dir(),
+                    is_link,
+                    m.size.unwrap_or(0),
+                    m.mtime.map(u64::from),
+                )
             }
             None => {
                 let lm = std::fs::symlink_metadata(&sp).with_context(|| format!("reading {sp}"))?;
@@ -667,14 +841,25 @@ async fn make_plan(source: &Endpoint, dest_dir: &Endpoint, src: Option<&SftpSess
                     continue;
                 }
                 safe_component(&n)?;
-                let child_src = if src.is_some() { join(&sp, &n) } else { PathBuf::from(&sp).join(&n).to_string_lossy().into_owned() };
+                let child_src = if src.is_some() {
+                    join(&sp, &n)
+                } else {
+                    PathBuf::from(&sp).join(&n).to_string_lossy().into_owned()
+                };
                 stack.push((child_src, dst_join(&dp, &n), depth + 1));
             }
         } else {
             if plan.files.len() >= MAX_FILES {
                 bail!("too many files (over {MAX_FILES})");
             }
-            plan.files.push(FileJob { src: sp, dst: dp, size, mtime, done: 0, finished: false });
+            plan.files.push(FileJob {
+                src: sp,
+                dst: dp,
+                size,
+                mtime,
+                done: 0,
+                finished: false,
+            });
         }
     }
     Ok(plan)
@@ -685,7 +870,11 @@ async fn make_plan(source: &Endpoint, dest_dir: &Endpoint, src: Option<&SftpSess
 /// a file onto itself would empty it); uploads replace remote files, as before.
 async fn count_existing(plan: &Plan, src: Option<&SftpSession>, dst: Option<&SftpSession>) -> u32 {
     match (src, dst) {
-        (_, None) => plan.files.iter().filter(|f| std::fs::symlink_metadata(&f.dst).is_ok()).count() as u32,
+        (_, None) => plan
+            .files
+            .iter()
+            .filter(|f| std::fs::symlink_metadata(&f.dst).is_ok())
+            .count() as u32,
         (Some(_), Some(d)) => {
             let mut n = 0;
             for f in &plan.files {
@@ -704,7 +893,9 @@ async fn make_dirs(plan: &Plan, dest_dir: &Endpoint, dst: Option<&SftpSession>) 
         (Endpoint::Remote { .. }, Some(s)) => {
             for d in &plan.dirs {
                 if !s.try_exists(d.as_str()).await.unwrap_or(false) {
-                    s.create_dir(d.as_str()).await.with_context(|| format!("creating {d}"))?;
+                    s.create_dir(d.as_str())
+                        .await
+                        .with_context(|| format!("creating {d}"))?;
                 }
             }
         }
@@ -713,7 +904,9 @@ async fn make_dirs(plan: &Plan, dest_dir: &Endpoint, dst: Option<&SftpSession>) 
             for d in &plan.dirs {
                 let d = PathBuf::from(d);
                 check_no_symlinks(&base, &d)?;
-                tokio::fs::create_dir_all(&d).await.with_context(|| format!("creating {}", d.display()))?;
+                tokio::fs::create_dir_all(&d)
+                    .await
+                    .with_context(|| format!("creating {}", d.display()))?;
             }
         }
         _ => {}
@@ -743,7 +936,11 @@ async fn open_src(job: &FileJob, s: Option<&SftpSession>) -> Result<Reader> {
     })
 }
 
-async fn open_dst(job: &FileJob, s: Option<&SftpSession>, local_base: Option<&std::path::Path>) -> Result<Writer> {
+async fn open_dst(
+    job: &FileJob,
+    s: Option<&SftpSession>,
+    local_base: Option<&std::path::Path>,
+) -> Result<Writer> {
     Ok(match s {
         Some(s) => {
             let mut flags = OpenFlags::CREATE | OpenFlags::WRITE;
@@ -779,12 +976,18 @@ async fn open_dst(job: &FileJob, s: Option<&SftpSession>, local_base: Option<&st
 async fn copy_mode(job: &FileJob, src: Option<&SftpSession>, dst: Option<&SftpSession>) {
     let Some(dst) = dst else { return };
     let mode = match src {
-        Some(s) => s.metadata(job.src.as_str()).await.ok().and_then(|m| m.permissions),
+        Some(s) => s
+            .metadata(job.src.as_str())
+            .await
+            .ok()
+            .and_then(|m| m.permissions),
         None => {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::metadata(&job.src).ok().map(|m| m.permissions().mode())
+                std::fs::metadata(&job.src)
+                    .ok()
+                    .map(|m| m.permissions().mode())
             }
             #[cfg(not(unix))]
             None
@@ -802,7 +1005,14 @@ mod tests {
     use super::*;
 
     fn job(size: u64, mtime: Option<u64>, done: u64) -> FileJob {
-        FileJob { src: "s".into(), dst: "d".into(), size, mtime, done, finished: false }
+        FileJob {
+            src: "s".into(),
+            dst: "d".into(),
+            size,
+            mtime,
+            done,
+            finished: false,
+        }
     }
 
     #[test]
@@ -825,16 +1035,36 @@ mod tests {
         let h = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let q = |s: TState, f: bool, hs: &[&str]| (s, f, h(hs));
         // Two per host: the third transfer on web waits; db still starts.
-        let e = vec![q(TState::Queued, false, &["web"]), q(TState::Queued, false, &["web"]), q(TState::Queued, false, &["web"]), q(TState::Queued, false, &["db"])];
+        let e = vec![
+            q(TState::Queued, false, &["web"]),
+            q(TState::Queued, false, &["web"]),
+            q(TState::Queued, false, &["web"]),
+            q(TState::Queued, false, &["db"]),
+        ];
         assert_eq!(startable(&e), vec![0, 1, 3]);
         // Four in total, counting ones already running.
-        let e = vec![q(TState::Running, false, &["a"]), q(TState::Running, false, &["b"]), q(TState::Running, false, &["c"]), q(TState::Queued, false, &["d"]), q(TState::Queued, false, &["e"])];
+        let e = vec![
+            q(TState::Running, false, &["a"]),
+            q(TState::Running, false, &["b"]),
+            q(TState::Running, false, &["c"]),
+            q(TState::Queued, false, &["d"]),
+            q(TState::Queued, false, &["e"]),
+        ];
         assert_eq!(startable(&e), vec![3]);
         // A server-to-server copy counts against both hosts.
-        let e = vec![q(TState::Running, false, &["a"]), q(TState::Running, false, &["a"]), q(TState::Queued, false, &["a", "b"])];
+        let e = vec![
+            q(TState::Running, false, &["a"]),
+            q(TState::Running, false, &["a"]),
+            q(TState::Queued, false, &["a", "b"]),
+        ];
         assert!(startable(&e).is_empty());
         // "Start now" ignores the limits; paused and finished ones never start.
-        let e = vec![q(TState::Running, false, &["a"]), q(TState::Running, false, &["a"]), q(TState::Queued, true, &["a"]), q(TState::Paused, false, &["z"])];
+        let e = vec![
+            q(TState::Running, false, &["a"]),
+            q(TState::Running, false, &["a"]),
+            q(TState::Queued, true, &["a"]),
+            q(TState::Paused, false, &["z"]),
+        ];
         assert_eq!(startable(&e), vec![2]);
     }
 
@@ -859,13 +1089,26 @@ mod tests {
         let out = dir.path().join("out");
         std::fs::create_dir(&out).unwrap();
         let plan = make_plan(
-            &Endpoint::Local { path: src.to_string_lossy().into() },
-            &Endpoint::Local { path: out.to_string_lossy().into() },
+            &Endpoint::Local {
+                path: src.to_string_lossy().into(),
+            },
+            &Endpoint::Local {
+                path: out.to_string_lossy().into(),
+            },
             None,
         )
         .await
         .unwrap();
-        let rel: Vec<_> = plan.files.iter().map(|f| f.dst.strip_prefix(out.to_str().unwrap()).unwrap().to_string()).collect();
+        let rel: Vec<_> = plan
+            .files
+            .iter()
+            .map(|f| {
+                f.dst
+                    .strip_prefix(out.to_str().unwrap())
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
         assert_eq!(rel, vec!["/proj/a.txt", "/proj/sub/b.bin"]);
         assert!(plan.dirs.iter().any(|d| d.ends_with("/proj/sub/empty")));
         // Resume a half-written file: the first half stays, the rest is appended.

@@ -1,4 +1,4 @@
-# Type-check, lint and test on every push to main and every pull request.
+# Check formatting, type-check and test on every push to main and every pull request.
 # (Release packages are built by release.yml when a v* tag is pushed.)
 
 name: CI
@@ -40,6 +40,11 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
       - uses: Swatinem/rust-cache@v2
         with:

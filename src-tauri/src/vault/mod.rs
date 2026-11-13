@@ -39,8 +39,12 @@ impl KdfParams {
     const MAX_P_COST: u32 = 16;
 
     fn check(&self) -> Result<()> {
-        if self.m_cost == 0 || self.m_cost > Self::MAX_M_COST || self.t_cost == 0 || self.t_cost > Self::MAX_T_COST
-            || self.p_cost == 0 || self.p_cost > Self::MAX_P_COST
+        if self.m_cost == 0
+            || self.m_cost > Self::MAX_M_COST
+            || self.t_cost == 0
+            || self.t_cost > Self::MAX_T_COST
+            || self.p_cost == 0
+            || self.p_cost > Self::MAX_P_COST
         {
             bail!("vault file has unreasonable key-derivation parameters (corrupted or tampered)");
         }
@@ -51,7 +55,11 @@ impl KdfParams {
 impl Default for KdfParams {
     fn default() -> Self {
         // 64 MiB, 3 passes, 1 lane: OWASP-recommended Argon2id baseline.
-        Self { m_cost: 64 * 1024, t_cost: 3, p_cost: 1 }
+        Self {
+            m_cost: 64 * 1024,
+            t_cost: 3,
+            p_cost: 1,
+        }
     }
 }
 
@@ -137,7 +145,10 @@ impl std::fmt::Debug for SecretInput {
             .field("name", &self.name)
             .field("kind", &self.kind)
             .field("value", &self.value.as_ref().map(|_| "<redacted>"))
-            .field("passphrase", &self.passphrase.as_ref().map(|_| "<redacted>"))
+            .field(
+                "passphrase",
+                &self.passphrase.as_ref().map(|_| "<redacted>"),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -203,16 +214,29 @@ struct ParsedFile<'a> {
 
 fn parse_file<'a>(magic: &[u8; 4], bytes: &'a [u8]) -> Result<ParsedFile<'a>> {
     if bytes.len() < HEADER_LEN + 16 || &bytes[..4] != magic {
-        bail!("not a Shellport {} file", if magic == MAGIC { "vault" } else { "backup" });
+        bail!(
+            "not a Shellport {} file",
+            if magic == MAGIC { "vault" } else { "backup" }
+        );
     }
     let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
-    let params = KdfParams { m_cost: u(4), t_cost: u(8), p_cost: u(12) };
+    let params = KdfParams {
+        m_cost: u(4),
+        t_cost: u(8),
+        p_cost: u(12),
+    };
     params.check()?;
     let mut salt = [0u8; 16];
     salt.copy_from_slice(&bytes[16..32]);
     let mut nonce = [0u8; 24];
     nonce.copy_from_slice(&bytes[32..56]);
-    Ok(ParsedFile { params, salt, nonce, header: &bytes[..HEADER_LEN], ciphertext: &bytes[HEADER_LEN..] })
+    Ok(ParsedFile {
+        params,
+        salt,
+        nonce,
+        header: &bytes[..HEADER_LEN],
+        ciphertext: &bytes[HEADER_LEN..],
+    })
 }
 
 /// Encrypt `plain` under a password, in the vault's format but with another
@@ -226,7 +250,13 @@ pub fn seal(magic: &[u8; 4], password: &str, plain: &[u8]) -> Result<Vec<u8>> {
     let key = derive_key(password, &salt, params)?;
     let hdr = header(magic, params, &salt, &nonce);
     let ct = XChaCha20Poly1305::new(key.as_ref().into())
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plain, aad: &hdr })
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plain,
+                aad: &hdr,
+            },
+        )
         .map_err(|_| anyhow!("encryption failed"))?;
     let mut out = hdr;
     out.extend_from_slice(&ct);
@@ -238,7 +268,13 @@ pub fn open_sealed(magic: &[u8; 4], password: &str, bytes: &[u8]) -> Result<Zero
     let f = parse_file(magic, bytes)?;
     let key = derive_key(password, &f.salt, f.params)?;
     let plain = XChaCha20Poly1305::new(key.as_ref().into())
-        .decrypt(XNonce::from_slice(&f.nonce), Payload { msg: f.ciphertext, aad: f.header })
+        .decrypt(
+            XNonce::from_slice(&f.nonce),
+            Payload {
+                msg: f.ciphertext,
+                aad: f.header,
+            },
+        )
         .map_err(|_| anyhow!("wrong passphrase, or the file is damaged"))?;
     Ok(Zeroizing::new(plain))
 }
@@ -311,7 +347,13 @@ impl Vault {
         let cipher = XChaCha20Poly1305::new(key.as_ref().into());
         let plain = Zeroizing::new(
             cipher
-                .decrypt(XNonce::from_slice(&f.nonce), Payload { msg: f.ciphertext, aad: f.header })
+                .decrypt(
+                    XNonce::from_slice(&f.nonce),
+                    Payload {
+                        msg: f.ciphertext,
+                        aad: f.header,
+                    },
+                )
                 .map_err(|_| anyhow!("wrong master password or corrupted vault"))?,
         );
         let data: VaultData = serde_json::from_slice(&plain).context("decoding vault")?;
@@ -329,15 +371,27 @@ impl Vault {
     }
 
     fn save(&self) -> Result<()> {
-        let key = self.key.as_ref().ok_or_else(|| anyhow!("vault is locked"))?;
-        let data = self.data.as_ref().ok_or_else(|| anyhow!("vault is locked"))?;
+        let key = self
+            .key
+            .as_ref()
+            .ok_or_else(|| anyhow!("vault is locked"))?;
+        let data = self
+            .data
+            .as_ref()
+            .ok_or_else(|| anyhow!("vault is locked"))?;
         let plain = to_json_zeroizing(data)?;
         let mut nonce = [0u8; 24];
         rand::thread_rng().fill_bytes(&mut nonce);
         let hdr = header(MAGIC, self.params, &self.salt, &nonce);
         let cipher = XChaCha20Poly1305::new(key.as_ref().into());
         let ct = cipher
-            .encrypt(XNonce::from_slice(&nonce), Payload { msg: &plain, aad: &hdr })
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &plain,
+                    aad: &hdr,
+                },
+            )
             .map_err(|_| anyhow!("encryption failed"))?;
         let mut out = hdr;
         out.extend_from_slice(&ct);
@@ -377,12 +431,19 @@ impl Vault {
         }
         if input.kind == SecretKind::PrivateKey {
             if let Some(v) = input.value.as_deref() {
-                russh::keys::decode_secret_key(v, input.passphrase.as_deref().filter(|p| !p.is_empty()))
-                    .map_err(|e| anyhow!("private key could not be parsed: {e}"))?;
+                russh::keys::decode_secret_key(
+                    v,
+                    input.passphrase.as_deref().filter(|p| !p.is_empty()),
+                )
+                .map_err(|e| anyhow!("private key could not be parsed: {e}"))?;
             }
         }
         let data = self.data_mut()?;
-        let meta = match input.id.as_deref().and_then(|id| data.secrets.iter_mut().find(|s| s.id == id)) {
+        let meta = match input
+            .id
+            .as_deref()
+            .and_then(|id| data.secrets.iter_mut().find(|s| s.id == id))
+        {
             Some(s) => {
                 s.name = input.name;
                 s.kind = input.kind;
@@ -441,7 +502,9 @@ impl Vault {
     }
 
     pub fn has_secret(&self, id: &str) -> bool {
-        self.data.as_ref().is_some_and(|d| d.secrets.iter().any(|s| s.id == id))
+        self.data
+            .as_ref()
+            .is_some_and(|d| d.secrets.iter().any(|s| s.id == id))
     }
 
     pub fn delete(&mut self, id: &str) -> Result<()> {
@@ -514,7 +577,11 @@ mod tests {
     use super::*;
 
     fn fast() -> KdfParams {
-        KdfParams { m_cost: 1024, t_cost: 1, p_cost: 1 }
+        KdfParams {
+            m_cost: 1024,
+            t_cost: 1,
+            p_cost: 1,
+        }
     }
 
     fn input(name: &str, value: &str) -> SecretInput {
@@ -579,7 +646,10 @@ mod tests {
         std::fs::write(&path, &bytes).unwrap();
         let t = std::time::Instant::now();
         let err = Vault::new(path).unlock("correct horse").unwrap_err();
-        assert!(format!("{err:#}").contains("key-derivation parameters"), "{err:#}");
+        assert!(
+            format!("{err:#}").contains("key-derivation parameters"),
+            "{err:#}"
+        );
         assert!(t.elapsed().as_secs() < 2);
     }
 

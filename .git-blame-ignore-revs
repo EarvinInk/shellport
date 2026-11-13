@@ -1,0 +1,5 @@
+# Commits listed here are skipped by `git blame` (and GitHub's blame view).
+# Enable locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format Rust code with cargo fmt
+777c8bd4600ee2b984e1c861c3151b00b3077d89

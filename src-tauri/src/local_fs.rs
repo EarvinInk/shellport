@@ -27,7 +27,9 @@ pub struct Entry {
 
 /// Is `canon` (canonical) inside a grant that allows this access?
 fn allowed(grants: &[Grant], canon: &Path, write: bool) -> bool {
-    grants.iter().any(|g| (!write || g.write) && canon.starts_with(&g.root))
+    grants
+        .iter()
+        .any(|g| (!write || g.write) && canon.starts_with(&g.root))
 }
 
 fn check(app: &AppHandle, path: &str, write: bool) -> Result<PathBuf> {
@@ -44,7 +46,13 @@ fn check(app: &AppHandle, path: &str, write: bool) -> Result<PathBuf> {
 }
 
 /// Show a native picker; picked paths become readable (and writable for `write`).
-pub async fn pick(app: &AppHandle, folder: bool, multiple: bool, write: bool, title: &str) -> Result<Vec<String>> {
+pub async fn pick(
+    app: &AppHandle,
+    folder: bool,
+    multiple: bool,
+    write: bool,
+    title: &str,
+) -> Result<Vec<String>> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let d = app.dialog().file().set_title(title);
@@ -62,9 +70,14 @@ pub async fn pick(app: &AppHandle, folder: bool, multiple: bool, write: bool, ti
     let picked = rx.await.unwrap_or_default();
     let mut out = Vec::new();
     for fp in picked {
-        let path = fp.into_path().map_err(|e| anyhow!("unsupported file location: {e}"))?;
+        let path = fp
+            .into_path()
+            .map_err(|e| anyhow!("unsupported file location: {e}"))?;
         let canon = std::fs::canonicalize(&path)?;
-        app.state::<AppState>().local_grants.lock().push(Grant { root: canon.clone(), write });
+        app.state::<AppState>().local_grants.lock().push(Grant {
+            root: canon.clone(),
+            write,
+        });
         out.push(canon.to_string_lossy().into_owned());
     }
     Ok(out)
@@ -72,7 +85,10 @@ pub async fn pick(app: &AppHandle, folder: bool, multiple: bool, write: bool, ti
 
 fn entry(path: &Path, meta: &std::fs::Metadata) -> Entry {
     Entry {
-        name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         path: path.to_string_lossy().into_owned(),
         is_dir: meta.is_dir(),
         size: if meta.is_dir() { 0 } else { meta.len() },
@@ -121,7 +137,8 @@ pub fn create(app: &AppHandle, dir: &str, name: &str, folder: bool) -> Result<St
     }
     if folder {
         if !target.is_dir() {
-            std::fs::create_dir(&target).with_context(|| format!("creating {}", target.display()))?;
+            std::fs::create_dir(&target)
+                .with_context(|| format!("creating {}", target.display()))?;
         }
     } else {
         let mut o = std::fs::OpenOptions::new();
@@ -131,7 +148,8 @@ pub fn create(app: &AppHandle, dir: &str, name: &str, folder: bool) -> Result<St
             use std::os::unix::fs::OpenOptionsExt;
             o.custom_flags(libc::O_NOFOLLOW);
         }
-        o.open(&target).with_context(|| format!("creating {}", target.display()))?;
+        o.open(&target)
+            .with_context(|| format!("creating {}", target.display()))?;
     }
     Ok(target.to_string_lossy().into_owned())
 }
@@ -149,7 +167,16 @@ mod tests {
 
     #[test]
     fn grants_cover_only_their_tree() {
-        let g = vec![Grant { root: "/home/u/Downloads".into(), write: true }, Grant { root: "/home/u/notes.txt".into(), write: false }];
+        let g = vec![
+            Grant {
+                root: "/home/u/Downloads".into(),
+                write: true,
+            },
+            Grant {
+                root: "/home/u/notes.txt".into(),
+                write: false,
+            },
+        ];
         assert!(allowed(&g, Path::new("/home/u/Downloads/a/b.bin"), true));
         assert!(allowed(&g, Path::new("/home/u/notes.txt"), false));
         assert!(!allowed(&g, Path::new("/home/u/notes.txt"), true));

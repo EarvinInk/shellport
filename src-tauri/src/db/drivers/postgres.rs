@@ -11,10 +11,9 @@
 //! unnamed statements (`query_typed`), and query results come back as text.
 
 use crate::db::{
-    quote_ident, risk, Capabilities, Cell, ColumnMeta, ConnectParams, DbDriver, DbEngine, DbSession, EngineInfo, QueryOutput, SchemaNode, SslMode,
-    StatementResult, TxState,
+    quote_ident, risk, Capabilities, Cell, ColumnMeta, ConnectParams, DbDriver, DbEngine,
+    DbSession, EngineInfo, QueryOutput, SchemaNode, SslMode, StatementResult, TxState,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use futures_util::{pin_mut, StreamExt};
@@ -23,6 +22,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::AbortHandle;
@@ -39,7 +39,11 @@ impl DbDriver for Postgres {
             engine: DbEngine::Postgres,
             label: "PostgreSQL",
             default_port: 5432,
-            capabilities: Capabilities { cancel: true, transactions: true, tls: true },
+            capabilities: Capabilities {
+                cancel: true,
+                transactions: true,
+                tls: true,
+            },
         }
     }
 
@@ -58,8 +62,17 @@ impl DbDriver for Postgres {
         }
         cfg.port(p.connect_port)
             .user(&p.username)
-            .dbname(if p.database.is_empty() { &p.username } else { &p.database })
-            .application_name(p.options.get("application_name").map(String::as_str).unwrap_or("Shellport"))
+            .dbname(if p.database.is_empty() {
+                &p.username
+            } else {
+                &p.database
+            })
+            .application_name(
+                p.options
+                    .get("application_name")
+                    .map(String::as_str)
+                    .unwrap_or("Shellport"),
+            )
             .connect_timeout(Duration::from_secs(15))
             .ssl_mode(match p.ssl_mode {
                 SslMode::Disable => tokio_postgres::config::SslMode::Disable,
@@ -74,7 +87,10 @@ impl DbDriver for Postgres {
             .keepalives_idle(Duration::from_secs(30))
             .keepalives_interval(Duration::from_secs(10))
             .keepalives_retries(3);
-        let pooler = p.options.get("pooler").is_some_and(|v| v == "1" || v == "true");
+        let pooler = p
+            .options
+            .get("pooler")
+            .is_some_and(|v| v == "1" || v == "true");
         // Poolers reject startup options, so read-only is then checked by us
         // before each query instead (see `query`).
         if p.read_only && !pooler {
@@ -85,7 +101,12 @@ impl DbDriver for Postgres {
             Ok(c) => c,
             // A pooler that doesn't pass startup options through: connect again
             // in pooler mode, where read-only is checked on our side.
-            Err(e) if p.read_only && !pooler && e.as_db_error().is_some_and(|d| d.message().contains("unsupported startup parameter")) => {
+            Err(e)
+                if p.read_only
+                    && !pooler
+                    && e.as_db_error()
+                        .is_some_and(|d| d.message().contains("unsupported startup parameter")) =>
+            {
                 let mut p = p;
                 p.options.insert("pooler".into(), "1".into());
                 return Box::pin(self.connect(p)).await;
@@ -101,7 +122,9 @@ impl DbDriver for Postgres {
             pin_mut!(messages);
             while let Some(m) = messages.next().await {
                 match m {
-                    Ok(AsyncMessage::Notice(n)) => n2.lock().push(format!("{}: {}", n.severity(), n.message())),
+                    Ok(AsyncMessage::Notice(n)) => {
+                        n2.lock().push(format!("{}: {}", n.severity(), n.message()))
+                    }
                     Ok(_) => {}
                     Err(e) => {
                         log::warn!("postgres connection closed: {e}");
@@ -152,10 +175,19 @@ impl PgSession {
     /// Rows of a lookup query, as text, using an unnamed statement (works
     /// behind poolers). Parameters are text.
     async fn lookup(&self, sql: &str, params: &[&str]) -> Result<Vec<Vec<Option<String>>>> {
-        let p: Vec<(&(dyn tokio_postgres::types::ToSql + Sync), Type)> =
-            params.iter().map(|v| (v as &(dyn tokio_postgres::types::ToSql + Sync), Type::TEXT)).collect();
+        let p: Vec<(&(dyn tokio_postgres::types::ToSql + Sync), Type)> = params
+            .iter()
+            .map(|v| (v as &(dyn tokio_postgres::types::ToSql + Sync), Type::TEXT))
+            .collect();
         let rows = self.client.query_typed(sql, &p).await.map_err(pg_err)?;
-        Ok(rows.iter().map(|r| (0..r.len()).map(|i| r.get::<_, Option<String>>(i)).collect()).collect())
+        Ok(rows
+            .iter()
+            .map(|r| {
+                (0..r.len())
+                    .map(|i| r.get::<_, Option<String>>(i))
+                    .collect()
+            })
+            .collect())
     }
 
     /// Column types of a single statement, when it can be prepared.
@@ -167,7 +199,9 @@ impl PgSession {
             Ok(st) => st.columns().iter().map(|c| c.type_().clone()).collect(),
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("prepared statement") && (msg.contains("does not exist") || msg.contains("already exists")) {
+                if msg.contains("prepared statement")
+                    && (msg.contains("does not exist") || msg.contains("already exists"))
+                {
                     log::info!("named prepared statements unsupported here (pooler?); switching to pooler mode");
                     self.pooler.store(true, Ordering::Relaxed);
                 }
@@ -192,7 +226,12 @@ impl DbSession for PgSession {
     }
 
     async fn children(&self, path: &[String]) -> Result<Vec<SchemaNode>> {
-        let node = |name: String, path: Vec<String>, kind: &str, detail: Option<String>, has_children: bool, preview_sql: Option<String>| SchemaNode {
+        let node = |name: String,
+                    path: Vec<String>,
+                    kind: &str,
+                    detail: Option<String>,
+                    has_children: bool,
+                    preview_sql: Option<String>| SchemaNode {
             name,
             path,
             kind: kind.into(),
@@ -223,10 +262,23 @@ impl DbSession for PgSession {
             }
             [schema] => Ok(["tables", "views", "functions"]
                 .iter()
-                .map(|f| node(capitalize(f), vec![schema.clone(), f.to_string()], "folder", None, true, None))
+                .map(|f| {
+                    node(
+                        capitalize(f),
+                        vec![schema.clone(), f.to_string()],
+                        "folder",
+                        None,
+                        true,
+                        None,
+                    )
+                })
                 .collect()),
             [schema, folder] if folder == "tables" || folder == "views" => {
-                let kinds = if folder == "tables" { "('r','p','f')" } else { "('v','m')" };
+                let kinds = if folder == "tables" {
+                    "('r','p','f')"
+                } else {
+                    "('v','m')"
+                };
                 let sql = format!(
                     "SELECT c.relname::text, c.relkind::text, c.reltuples::bigint::text FROM pg_class c \
                      JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -246,10 +298,22 @@ impl DbSession for PgSession {
                             _ if est >= 0 && folder == "tables" => Some(format!("~{est} rows")),
                             _ => None,
                         };
-                        let preview = format!("SELECT * FROM {}.{} LIMIT 100;", quote_ident(schema), quote_ident(&name));
+                        let preview = format!(
+                            "SELECT * FROM {}.{} LIMIT 100;",
+                            quote_ident(schema),
+                            quote_ident(&name)
+                        );
                         let k = if folder == "tables" { "table" } else { "view" };
-                        let mut n = node(name.clone(), vec![schema.clone(), folder.clone(), name.clone()], k, detail, true, Some(preview));
-                        n.insert_text = Some(format!("{}.{}", quote_ident(schema), quote_ident(&name)));
+                        let mut n = node(
+                            name.clone(),
+                            vec![schema.clone(), folder.clone(), name.clone()],
+                            k,
+                            detail,
+                            true,
+                            Some(preview),
+                        );
+                        n.insert_text =
+                            Some(format!("{}.{}", quote_ident(schema), quote_ident(&name)));
                         n
                     })
                     .collect())
@@ -266,8 +330,16 @@ impl DbSession for PgSession {
                         let name = col(r, 0);
                         let args = col(r, 1);
                         let kind = col(r, 2);
-                        let mut n = node(format!("{name}({args})"), vec![schema.clone(), folder.clone(), name.clone()], &kind, None, false, None);
-                        n.insert_text = Some(format!("{}.{}", quote_ident(schema), quote_ident(&name)));
+                        let mut n = node(
+                            format!("{name}({args})"),
+                            vec![schema.clone(), folder.clone(), name.clone()],
+                            &kind,
+                            None,
+                            false,
+                            None,
+                        );
+                        n.insert_text =
+                            Some(format!("{}.{}", quote_ident(schema), quote_ident(&name)));
                         n
                     })
                     .collect())
@@ -316,11 +388,18 @@ impl DbSession for PgSession {
 
         // A single plain query is read through a cursor, so the server stops
         // after `row_limit` rows instead of sending the whole result.
-        let cursor = if tx_before == TxState::Failed { None } else { risk::as_cursor_query(sql) };
+        let cursor = if tx_before == TxState::Failed {
+            None
+        } else {
+            risk::as_cursor_query(sql)
+        };
         let results = match cursor {
             Some(q) => {
                 let own_tx = tx_before == TxState::Idle;
-                let prefix = format!("{}DECLARE shellport_cursor NO SCROLL CURSOR FOR ", if own_tx { "BEGIN; " } else { "" });
+                let prefix = format!(
+                    "{}DECLARE shellport_cursor NO SCROLL CURSOR FOR ",
+                    if own_tx { "BEGIN; " } else { "" }
+                );
                 let script = format!(
                     "{prefix}{q}; FETCH {} FROM shellport_cursor; CLOSE shellport_cursor;{}",
                     row_limit + 1,
@@ -328,10 +407,17 @@ impl DbSession for PgSession {
                 );
                 // Error positions must point into the user's text, not the wrapper.
                 let offset = prefix.chars().count() as u32;
-                match self.run_script(&script, &types, row_limit).await.map_err(|e| shift_position(e, offset)) {
+                match self
+                    .run_script(&script, &types, row_limit)
+                    .await
+                    .map_err(|e| shift_position(e, offset))
+                {
                     // Keep only the FETCH result (it is the one with columns).
                     Ok(rs) => {
-                        let mut fetched = rs.into_iter().find(|r| !r.columns.is_empty()).unwrap_or_default();
+                        let mut fetched = rs
+                            .into_iter()
+                            .find(|r| !r.columns.is_empty())
+                            .unwrap_or_default();
                         fetched.rows_affected = Some(fetched.rows.len() as u64);
                         vec![fetched]
                     }
@@ -347,11 +433,20 @@ impl DbSession for PgSession {
         };
         let tx = self.tx_state().await.unwrap_or(TxState::Idle);
         let notices = std::mem::take(&mut *self.notices.lock());
-        Ok(QueryOutput { results, notices, elapsed_ms: started.elapsed().as_millis() as u64, tx })
+        Ok(QueryOutput {
+            results,
+            notices,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+            tx,
+        })
     }
 
     async fn cancel(&self) -> Result<()> {
-        self.client.cancel_token().cancel_query(self.tls.clone()).await.map_err(pg_err)
+        self.client
+            .cancel_token()
+            .cancel_query(self.tls.clone())
+            .await
+            .map_err(pg_err)
     }
 
     async fn close(&self) {
@@ -365,15 +460,29 @@ impl DbSession for PgSession {
     async fn tx_state(&self) -> Result<TxState> {
         // Inside a transaction block now() is the block's start time, so it
         // differs from the time this statement started; outside, they match.
-        match self.client.simple_query("SELECT now() = statement_timestamp()").await {
+        match self
+            .client
+            .simple_query("SELECT now() = statement_timestamp()")
+            .await
+        {
             Ok(msgs) => {
                 let same = msgs.iter().find_map(|m| match m {
                     SimpleQueryMessage::Row(r) => r.get(0).map(|v| v == "t"),
                     _ => None,
                 });
-                Ok(if same.unwrap_or(true) { TxState::Idle } else { TxState::Open })
+                Ok(if same.unwrap_or(true) {
+                    TxState::Idle
+                } else {
+                    TxState::Open
+                })
             }
-            Err(e) if e.as_db_error().is_some_and(|d| d.code() == &tokio_postgres::error::SqlState::IN_FAILED_SQL_TRANSACTION) => Ok(TxState::Failed),
+            Err(e)
+                if e.as_db_error().is_some_and(|d| {
+                    d.code() == &tokio_postgres::error::SqlState::IN_FAILED_SQL_TRANSACTION
+                }) =>
+            {
+                Ok(TxState::Failed)
+            }
             Err(e) => Err(pg_err(e)),
         }
     }
@@ -382,7 +491,12 @@ impl DbSession for PgSession {
 impl PgSession {
     /// Run a script over the simple protocol, keeping at most `row_limit` rows
     /// per statement. `types` (if known) apply to every result's columns.
-    async fn run_script(&self, sql: &str, types: &[Type], row_limit: usize) -> Result<Vec<StatementResult>> {
+    async fn run_script(
+        &self,
+        sql: &str,
+        types: &[Type],
+        row_limit: usize,
+    ) -> Result<Vec<StatementResult>> {
         let stream = self.client.simple_query_raw(sql).await.map_err(pg_err)?;
         pin_mut!(stream);
         let mut results = Vec::new();
@@ -394,7 +508,13 @@ impl PgSession {
                         columns: cols
                             .iter()
                             .enumerate()
-                            .map(|(i, c)| ColumnMeta { name: c.name().to_string(), type_name: types.get(i).map(|t| t.name().to_string()).unwrap_or_default() })
+                            .map(|(i, c)| ColumnMeta {
+                                name: c.name().to_string(),
+                                type_name: types
+                                    .get(i)
+                                    .map(|t| t.name().to_string())
+                                    .unwrap_or_default(),
+                            })
                             .collect(),
                         ..Default::default()
                     });
@@ -405,7 +525,11 @@ impl PgSession {
                         r.truncated = true;
                         continue;
                     }
-                    r.rows.push((0..row.len()).map(|i| text_to_cell(row.get(i), types.get(i))).collect());
+                    r.rows.push(
+                        (0..row.len())
+                            .map(|i| text_to_cell(row.get(i), types.get(i)))
+                            .collect(),
+                    );
                 }
                 SimpleQueryMessage::CommandComplete(n) => {
                     let mut r = cur.take().unwrap_or_default();
@@ -438,10 +562,15 @@ fn capitalize(s: &str) -> String {
 /// Map a text-protocol value to a typed cell when the column type is known.
 fn text_to_cell(v: Option<&str>, ty: Option<&Type>) -> Cell {
     let Some(v) = v else { return Cell::Null };
-    let Some(ty) = ty else { return Cell::Text(v.to_string()) };
+    let Some(ty) = ty else {
+        return Cell::Text(v.to_string());
+    };
     match *ty {
         Type::BOOL => Cell::Bool(v == "t"),
-        Type::INT2 | Type::INT4 | Type::INT8 | Type::OID => v.parse().map(Cell::Int).unwrap_or_else(|_| Cell::Text(v.into())),
+        Type::INT2 | Type::INT4 | Type::INT8 | Type::OID => v
+            .parse()
+            .map(Cell::Int)
+            .unwrap_or_else(|_| Cell::Text(v.into())),
         Type::FLOAT4 | Type::FLOAT8 => match v.parse::<f64>() {
             Ok(f) if f.is_finite() => Cell::Float(f),
             _ => Cell::Text(v.into()),
@@ -455,11 +584,18 @@ fn text_to_cell(v: Option<&str>, ty: Option<&Type>) -> Cell {
 /// Move "(at character N)" back by `offset` characters.
 fn shift_position(e: anyhow::Error, offset: u32) -> anyhow::Error {
     let msg = format!("{e:#}");
-    let Some(start) = msg.rfind("(at character ") else { return e };
+    let Some(start) = msg.rfind("(at character ") else {
+        return e;
+    };
     let rest = &msg[start + 14..];
     let Some(end) = rest.find(')') else { return e };
     match rest[..end].parse::<u32>() {
-        Ok(p) if p > offset => anyhow!("{}(at character {}){}", &msg[..start], p - offset, &rest[end + 1..]),
+        Ok(p) if p > offset => anyhow!(
+            "{}(at character {}){}",
+            &msg[..start],
+            p - offset,
+            &rest[end + 1..]
+        ),
         _ => e,
     }
 }
@@ -495,12 +631,18 @@ fn pg_err(e: tokio_postgres::Error) -> anyhow::Error {
 
 fn tls_connector(verify: bool) -> Result<MakeRustlsConnect> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let builder = rustls::ClientConfig::builder_with_provider(provider.clone()).with_safe_default_protocol_versions()?;
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()?;
     let config = if verify {
-        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+        let roots = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
         builder.with_root_certificates(roots).with_no_client_auth()
     } else {
-        builder.dangerous().with_custom_certificate_verifier(Arc::new(NoVerify(provider))).with_no_client_auth()
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoVerify(provider)))
+            .with_no_client_auth()
     };
     Ok(MakeRustlsConnect::new(config))
 }
@@ -510,13 +652,30 @@ fn tls_connector(verify: bool) -> Result<MakeRustlsConnect> {
 struct NoVerify(Arc<CryptoProvider>);
 
 impl ServerCertVerifier for NoVerify {
-    fn verify_server_cert(&self, _: &CertificateDer<'_>, _: &[CertificateDer<'_>], _: &ServerName<'_>, _: &[u8], _: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
+    fn verify_server_cert(
+        &self,
+        _: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        _: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
     }
-    fn verify_tls12_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls12_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         rustls::crypto::verify_tls12_signature(m, c, d, &self.0.signature_verification_algorithms)
     }
-    fn verify_tls13_signature(&self, m: &[u8], c: &CertificateDer<'_>, d: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+    fn verify_tls13_signature(
+        &self,
+        m: &[u8],
+        c: &CertificateDer<'_>,
+        d: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
         rustls::crypto::verify_tls13_signature(m, c, d, &self.0.signature_verification_algorithms)
     }
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -534,18 +693,39 @@ mod tests {
         assert_eq!(text_to_cell(None, Some(&Type::INT4)), Cell::Null);
         assert_eq!(text_to_cell(Some("42"), Some(&Type::INT8)), Cell::Int(42));
         assert_eq!(text_to_cell(Some("t"), Some(&Type::BOOL)), Cell::Bool(true));
-        assert_eq!(text_to_cell(Some("1.5"), Some(&Type::FLOAT8)), Cell::Float(1.5));
-        assert_eq!(text_to_cell(Some("NaN"), Some(&Type::FLOAT8)), Cell::Text("NaN".into()));
-        assert_eq!(text_to_cell(Some("{\"a\":1}"), Some(&Type::JSONB)), Cell::Json("{\"a\":1}".into()));
-        assert_eq!(text_to_cell(Some("12.50"), Some(&Type::NUMERIC)), Cell::Text("12.50".into()));
+        assert_eq!(
+            text_to_cell(Some("1.5"), Some(&Type::FLOAT8)),
+            Cell::Float(1.5)
+        );
+        assert_eq!(
+            text_to_cell(Some("NaN"), Some(&Type::FLOAT8)),
+            Cell::Text("NaN".into())
+        );
+        assert_eq!(
+            text_to_cell(Some("{\"a\":1}"), Some(&Type::JSONB)),
+            Cell::Json("{\"a\":1}".into())
+        );
+        assert_eq!(
+            text_to_cell(Some("12.50"), Some(&Type::NUMERIC)),
+            Cell::Text("12.50".into())
+        );
         assert_eq!(text_to_cell(Some("7"), None), Cell::Text("7".into()));
     }
 
     #[test]
     fn error_positions_shift_back() {
-        let e = shift_position(anyhow!("ERROR: syntax error at or near \"7\" (at character 89)"), 53);
-        assert_eq!(e.to_string(), "ERROR: syntax error at or near \"7\" (at character 36)");
-        assert_eq!(shift_position(anyhow!("ERROR: boom"), 53).to_string(), "ERROR: boom");
+        let e = shift_position(
+            anyhow!("ERROR: syntax error at or near \"7\" (at character 89)"),
+            53,
+        );
+        assert_eq!(
+            e.to_string(),
+            "ERROR: syntax error at or near \"7\" (at character 36)"
+        );
+        assert_eq!(
+            shift_position(anyhow!("ERROR: boom"), 53).to_string(),
+            "ERROR: boom"
+        );
     }
 
     #[test]
@@ -563,7 +743,10 @@ mod tests {
             username: "shellport".into(),
             password: Some("shellport-test".to_string().into()),
             ssl_mode: SslMode::Prefer,
-            options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<BTreeMap<_, _>>(),
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<_, _>>(),
             read_only,
         }
     }
@@ -578,17 +761,34 @@ mod tests {
         let s = Postgres.connect(p).await.unwrap();
         // Several rounds so statements land on different server connections.
         for _ in 0..5 {
-            let out = s.query("SELECT id, total FROM shop.orders ORDER BY id LIMIT 3", 10).await.unwrap();
+            let out = s
+                .query("SELECT id, total FROM shop.orders ORDER BY id LIMIT 3", 10)
+                .await
+                .unwrap();
             assert_eq!(out.results[0].rows.len(), 3);
-            assert!(s.children(&["shop".into(), "tables".into()]).await.unwrap().iter().any(|n| n.name == "orders"));
-            assert!(!s.children(&["shop".into(), "tables".into(), "orders".into()]).await.unwrap().is_empty());
+            assert!(s
+                .children(&["shop".into(), "tables".into()])
+                .await
+                .unwrap()
+                .iter()
+                .any(|n| n.name == "orders"));
+            assert!(!s
+                .children(&["shop".into(), "tables".into(), "orders".into()])
+                .await
+                .unwrap()
+                .is_empty());
         }
         // Read-only without the pooler flag: falls back to pooler mode.
         let mut p = params(&[], true);
         p.connect_port = 56432;
         let ro = Postgres.connect(p).await.unwrap();
         assert!(ro.query("SELECT 1", 10).await.is_ok());
-        assert!(ro.query("DELETE FROM shop.orders WHERE id = -1", 10).await.unwrap_err().to_string().contains("read-only"));
+        assert!(ro
+            .query("DELETE FROM shop.orders WHERE id = -1", 10)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("read-only"));
     }
 
     /// Needs the Postgres from dev/docker-compose.test.yml:
@@ -597,28 +797,54 @@ mod tests {
     #[ignore]
     async fn postgres_live() {
         for pooler in ["0", "1"] {
-            let s = Postgres.connect(params(&[("pooler", pooler)], false)).await.unwrap();
+            let s = Postgres
+                .connect(params(&[("pooler", pooler)], false))
+                .await
+                .unwrap();
             assert!(s.server_version().starts_with("PostgreSQL"));
-            let out = s.query("SELECT 1 AS one, 'x'::text AS t, NULL::int AS n", 10).await.unwrap();
-            let expect_one = if pooler == "0" { Cell::Int(1) } else { Cell::Text("1".into()) };
-            assert_eq!(out.results[0].rows[0], vec![expect_one, Cell::Text("x".into()), Cell::Null], "pooler={pooler}");
+            let out = s
+                .query("SELECT 1 AS one, 'x'::text AS t, NULL::int AS n", 10)
+                .await
+                .unwrap();
+            let expect_one = if pooler == "0" {
+                Cell::Int(1)
+            } else {
+                Cell::Text("1".into())
+            };
+            assert_eq!(
+                out.results[0].rows[0],
+                vec![expect_one, Cell::Text("x".into()), Cell::Null],
+                "pooler={pooler}"
+            );
             let out = s.query("CREATE TEMP TABLE t(i int); INSERT INTO t SELECT generate_series(1,5); SELECT * FROM t", 3).await.unwrap();
             assert_eq!(out.results.len(), 3);
             assert!(out.results[2].truncated);
             assert_eq!(out.results[2].rows.len(), 3);
             let schemas = s.children(&[]).await.unwrap();
             assert!(schemas.iter().any(|n| n.name == "public"));
-            let cols = s.children(&["shop".into(), "tables".into(), "orders".into()]).await.unwrap();
-            assert!(cols.iter().any(|c| c.name == "id" && c.detail.as_deref().unwrap_or("").contains("PK")));
+            let cols = s
+                .children(&["shop".into(), "tables".into(), "orders".into()])
+                .await
+                .unwrap();
+            assert!(cols
+                .iter()
+                .any(|c| c.name == "id" && c.detail.as_deref().unwrap_or("").contains("PK")));
         }
 
         let s = Postgres.connect(params(&[], false)).await.unwrap();
         // Errors on the cursor path point into the user's text.
-        let err = s.query("SELECT n, 7 7 FROM generate_series(1, 3) n", 10).await.unwrap_err().to_string();
+        let err = s
+            .query("SELECT n, 7 7 FROM generate_series(1, 3) n", 10)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.ends_with("(at character 13)"), "{err}");
         // Cursor path: the server stops after the limit.
         let t = Instant::now();
-        let out = s.query("SELECT generate_series(1, 1000000) AS n", 100).await.unwrap();
+        let out = s
+            .query("SELECT generate_series(1, 1000000) AS n", 100)
+            .await
+            .unwrap();
         assert_eq!(out.results.len(), 1);
         assert_eq!(out.results[0].rows.len(), 100);
         assert!(out.results[0].truncated);
@@ -629,7 +855,11 @@ mod tests {
         let out = s.query("BEGIN", 10).await.unwrap();
         assert_eq!(out.tx, TxState::Open);
         let out = s.query("SELECT 1", 10).await.unwrap();
-        assert_eq!(out.tx, TxState::Open, "cursor path must not commit the user's transaction");
+        assert_eq!(
+            out.tx,
+            TxState::Open,
+            "cursor path must not commit the user's transaction"
+        );
         assert!(s.query("SELECT 1/0", 10).await.is_err());
         assert_eq!(s.tx_state().await.unwrap(), TxState::Failed);
         let out = s.query("ROLLBACK", 10).await.unwrap();
@@ -649,9 +879,19 @@ mod tests {
 
         // Read-only: enforced by the server, and by us in pooler mode.
         for pooler in ["0", "1"] {
-            let ro = Postgres.connect(params(&[("pooler", pooler)], true)).await.unwrap();
-            assert!(ro.query("SELECT count(*) FROM shop.orders", 10).await.is_ok());
-            let err = ro.query("UPDATE shop.orders SET paid = paid WHERE id = 1", 10).await.unwrap_err().to_string();
+            let ro = Postgres
+                .connect(params(&[("pooler", pooler)], true))
+                .await
+                .unwrap();
+            assert!(ro
+                .query("SELECT count(*) FROM shop.orders", 10)
+                .await
+                .is_ok());
+            let err = ro
+                .query("UPDATE shop.orders SET paid = paid WHERE id = 1", 10)
+                .await
+                .unwrap_err()
+                .to_string();
             assert!(err.contains("read-only"), "pooler={pooler}: {err}");
         }
     }

@@ -28,6 +28,7 @@ Terminals, file transfers, containers and an encrypted secrets vault, all in a s
 - [Current limits](#current-limits)
 - [Uninstall](#uninstall)
 - [Build from source](#build-from-source)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## What Shellport offers
@@ -278,6 +279,10 @@ Profiles store engine-specific settings in `options`, so the store, tunnel, comm
 Built with [Tauri 2](https://tauri.app) (Rust) and React, using [russh](https://github.com/Eugeny/russh), [tokio-postgres](https://github.com/sfackler/rust-postgres), [bollard](https://github.com/fussybeaver/bollard) and [xterm.js](https://xtermjs.org).
 
 </details>
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read the [contributing guide](CONTRIBUTING.md) to get set up, and ask questions or share ideas in [Discussions](https://github.com/EarvinInk/shellport/discussions). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
