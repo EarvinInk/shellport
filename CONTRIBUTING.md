@@ -84,7 +84,8 @@ Please also try your change in the running app (`pnpm tauri dev`). Many features
 3. Add or update tests where it makes sense, especially for parsing, security checks and data handling.
 4. Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 5. Update the README or website docs if behaviour or options changed.
-6. Open the pull request and fill in the template. Screenshots or a short recording help a lot for UI changes.
+6. If you added or upgraded a dependency, regenerate the license notices with `node dev/third-party-licenses.mjs` and commit `THIRD_PARTY_LICENSES.md`. Only use dependencies under licenses compatible with MIT (MIT, Apache-2.0, BSD, ISC, MPL-2.0 and similar); ask first if you're unsure.
+7. Open the pull request and fill in the template. Screenshots or a short recording help a lot for UI changes.
 
 ### Style
 

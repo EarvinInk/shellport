@@ -41,6 +41,10 @@
     "longDescription": "Shellport is a native Linux desktop app for working with servers: tabbed SSH and local terminals, a dual-pane SFTP file manager, Docker management for local and remote hosts, and an encrypted vault for passwords and keys.",
     "homepage": "https://github.com/EarvinInk/shellport",
     "license": "MIT",
-    "copyright": "Copyright (c) 2026 The Shellport authors"
+    "copyright": "Copyright (c) 2026 The Shellport authors",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md"
+    }
   }
 }
