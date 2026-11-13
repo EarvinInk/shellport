@@ -180,7 +180,8 @@ pub fn secret_public_key(state: State<'_, AppState>, id: String) -> CmdResult<St
 #[tauri::command]
 pub fn secret_generate_key(state: State<'_, AppState>, name: String) -> CmdResult<SecretMeta> {
     let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, seed.as_mut());
+    rand::TryRng::try_fill_bytes(&mut rand::rngs::SysRng, seed.as_mut())
+        .map_err(|e| anyhow!("no random numbers from the system: {e}"))?;
     let mut key = russh::keys::PrivateKey::from(
         russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&seed),
     );

@@ -7,7 +7,7 @@ order: 2
 
 Shellport runs on 64-bit Linux (x86_64). It's developed and tested on Linux Mint 22, and should work on Ubuntu 22.04+, Debian 12+ and other current distributions that ship **WebKitGTK 4.1**.
 
-Download the latest version from the [Download page](/download/). There are two formats:
+Download the latest version from the [Download page](../../download/). There are two formats:
 
 | File | Best for | Size |
 |---|---|---|

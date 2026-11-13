@@ -18,7 +18,7 @@ All file browser tabs share **one transfer queue**. Open it with the **Transfers
 - Up to four transfers run at once, at most two per host; the rest wait their turn.
 - Shellport asks before overwriting local files, or files on another server.
 
-Finished, failed and cancelled transfers are recorded in [Activity](/docs/work-across-servers/#activity-and-history).
+Finished, failed and cancelled transfers are recorded in [Activity](../work-across-servers/#activity-and-history).
 
 ### Copy between servers
 
