@@ -14,7 +14,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -193,6 +192,12 @@ fn derive_key(password: &str, salt: &[u8; 16], p: KdfParams) -> Result<Zeroizing
     Ok(key)
 }
 
+/// The XChaCha20-Poly1305 cipher for a 32-byte key (borrowed, so no unzeroized
+/// copy of the key is left behind).
+fn cipher(key: &[u8; 32]) -> XChaCha20Poly1305 {
+    XChaCha20Poly1305::new(key.into())
+}
+
 fn header(magic: &[u8; 4], params: KdfParams, salt: &[u8; 16], nonce: &[u8; 24]) -> Vec<u8> {
     let mut h = Vec::with_capacity(HEADER_LEN);
     h.extend_from_slice(magic);
@@ -244,14 +249,14 @@ fn parse_file<'a>(magic: &[u8; 4], bytes: &'a [u8]) -> Result<ParsedFile<'a>> {
 pub fn seal(magic: &[u8; 4], password: &str, plain: &[u8]) -> Result<Vec<u8>> {
     let params = KdfParams::default();
     let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::fill(&mut salt[..]);
     let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    rand::fill(&mut nonce[..]);
     let key = derive_key(password, &salt, params)?;
     let hdr = header(magic, params, &salt, &nonce);
-    let ct = XChaCha20Poly1305::new(key.as_ref().into())
+    let ct = cipher(&key)
         .encrypt(
-            XNonce::from_slice(&nonce),
+            &XNonce::from(nonce),
             Payload {
                 msg: plain,
                 aad: &hdr,
@@ -267,9 +272,9 @@ pub fn seal(magic: &[u8; 4], password: &str, plain: &[u8]) -> Result<Vec<u8>> {
 pub fn open_sealed(magic: &[u8; 4], password: &str, bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     let f = parse_file(magic, bytes)?;
     let key = derive_key(password, &f.salt, f.params)?;
-    let plain = XChaCha20Poly1305::new(key.as_ref().into())
+    let plain = cipher(&key)
         .decrypt(
-            XNonce::from_slice(&f.nonce),
+            &XNonce::from(f.nonce),
             Payload {
                 msg: f.ciphertext,
                 aad: f.header,
@@ -316,7 +321,7 @@ impl Vault {
             bail!("master password must be at least 8 characters");
         }
         let mut salt = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut salt);
+        rand::fill(&mut salt[..]);
         self.key = Some(derive_key(password, &salt, params)?);
         self.salt = salt;
         self.params = params;
@@ -344,11 +349,11 @@ impl Vault {
 
     fn open_with_key(&mut self, bytes: &[u8], key: Zeroizing<[u8; 32]>) -> Result<()> {
         let f = parse_file(MAGIC, bytes)?;
-        let cipher = XChaCha20Poly1305::new(key.as_ref().into());
+        let cipher = cipher(&key);
         let plain = Zeroizing::new(
             cipher
                 .decrypt(
-                    XNonce::from_slice(&f.nonce),
+                    &XNonce::from(f.nonce),
                     Payload {
                         msg: f.ciphertext,
                         aad: f.header,
@@ -381,12 +386,12 @@ impl Vault {
             .ok_or_else(|| anyhow!("vault is locked"))?;
         let plain = to_json_zeroizing(data)?;
         let mut nonce = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        rand::fill(&mut nonce[..]);
         let hdr = header(MAGIC, self.params, &self.salt, &nonce);
-        let cipher = XChaCha20Poly1305::new(key.as_ref().into());
+        let cipher = cipher(key);
         let ct = cipher
             .encrypt(
-                XNonce::from_slice(&nonce),
+                &XNonce::from(nonce),
                 Payload {
                     msg: &plain,
                     aad: &hdr,
@@ -531,7 +536,7 @@ impl Vault {
             bail!("current master password is incorrect");
         }
         let mut salt = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut salt);
+        rand::fill(&mut salt[..]);
         let params = KdfParams::default();
         let key = derive_key(new, &salt, params)?;
         self.key = Some(key.clone());
@@ -594,6 +599,58 @@ mod tests {
             passphrase: None,
             notes: String::new(),
         }
+    }
+
+    // Files written by Shellport 0.2.1 (argon2 0.5, chacha20poly1305 0.10,
+    // rand 0.8). Crate upgrades must keep opening them, or people would be
+    // locked out of their vaults and backups.
+    const COMPAT_PASSWORD: &str = "correct horse";
+    const COMPAT_VAULT: &[u8] = include_bytes!("testdata/vault-0.2.1.bin");
+    const COMPAT_SEALED: &[u8] = include_bytes!("testdata/sealed-0.2.1.bin");
+    const COMPAT_SECRET_ID: &str = include_str!("testdata/vault-0.2.1.id");
+
+    /// Regenerate the files above (only with the crate versions they name):
+    /// `cargo test --lib write_compat_files -- --ignored`
+    #[test]
+    #[ignore]
+    fn write_compat_files() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vault/testdata");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vault-0.2.1.bin");
+        let _ = std::fs::remove_file(&path);
+        let mut v = Vault::new(path);
+        v.create(COMPAT_PASSWORD, fast()).unwrap();
+        let m = v.upsert(input("prod db", "hunter2")).unwrap();
+        std::fs::write(dir.join("vault-0.2.1.id"), &m.id).unwrap();
+        std::fs::write(
+            dir.join("sealed-0.2.1.bin"),
+            seal(b"TEST", COMPAT_PASSWORD, b"backup payload").unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn opens_vault_from_0_2_1() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.bin");
+        std::fs::write(&path, COMPAT_VAULT).unwrap();
+        let mut v = Vault::new(path.clone());
+        assert!(v.unlock("wrong password").is_err());
+        let key = v.unlock(COMPAT_PASSWORD).unwrap();
+        assert_eq!(v.get(COMPAT_SECRET_ID).unwrap().value, "hunter2");
+        // The key stored in the keyring still works too.
+        let mut v2 = Vault::new(path);
+        v2.unlock_with_key(key).unwrap();
+        assert_eq!(v2.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn opens_sealed_file_from_0_2_1() {
+        assert_eq!(
+            &open_sealed(b"TEST", COMPAT_PASSWORD, COMPAT_SEALED).unwrap()[..],
+            b"backup payload"
+        );
+        assert!(open_sealed(b"TEST", "wrong password", COMPAT_SEALED).is_err());
     }
 
     #[test]

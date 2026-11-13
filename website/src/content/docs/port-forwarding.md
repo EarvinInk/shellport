@@ -13,7 +13,7 @@ Shellport supports local port forwarding (`ssh -L`) per host.
 2. Add a forward, for example local port `15432` → `127.0.0.1:5432`.
 3. Connect to `localhost:15432` from your database client to reach the remote database.
 
-For PostgreSQL you can skip this: the [Databases](/docs/databases/) panel opens its own tunnel.
+For PostgreSQL you can skip this: the [Databases](../databases/) panel opens its own tunnel.
 
 ## Auto-start
 

@@ -28,4 +28,4 @@ Make sure the SSH user can access Docker on that server (for example, is in the 
 
 ## Still stuck?
 
-Ask on the [contact page](/contact/) and include your distribution, Shellport version and what you tried.
+Ask on the [contact page](../../contact/) and include your distribution, Shellport version and what you tried.
