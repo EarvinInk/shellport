@@ -104,9 +104,10 @@ const changes = [
 
       <div class="card">
         <h3><Icon name="shield" size={18} />Verified builds</h3>
-        <p class="muted">Official packages are built in the open by GitHub Actions on Ubuntu 22.04, straight from the tagged source. Every release lists its files on GitHub.</p>
+        <p class="muted">Official packages are built in the open by GitHub Actions on Ubuntu 22.04, straight from the tagged source. Each release includes a <code>SHA256SUMS</code> file so you can check your download.</p>
         <div class="links">
           <a class="link" href={site.releases} rel="noopener">All releases <Icon name="external" size={14} /></a>
+          <a class="link" href={u('/docs/install/#verify-your-download')}>Verify a download <Icon name="arrowRight" size={15} /></a>
           <a class="link" href={u('/docs/uninstall/')}>How to uninstall <Icon name="arrowRight" size={15} /></a>
         </div>
       </div>
@@ -168,7 +169,7 @@ const changes = [
   }
   .callout :global(svg) { color: var(--warn); flex: none; margin-top: 2px; }
   .callout strong { color: var(--fg); }
-  .callout code, .req code { font-size: 13px; color: var(--fg); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
+  .callout code, .req code, .details .card > p code { font-size: 13px; color: var(--fg); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
 
   .details { padding-top: 72px; }
   .details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1040px; }

@@ -45,3 +45,13 @@ Works on any distribution.
    You can also right-click the file → **Properties** → **Permissions** → *Allow executing file as program*, then double-click it.
 
 > **AppImage won't start?** AppImages need FUSE 2. Install it with `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04 / Debian).
+
+## Verify your download
+
+Releases include a `SHA256SUMS` file. Download it into the same folder as the package and run:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+It should print `OK` next to the file you downloaded.

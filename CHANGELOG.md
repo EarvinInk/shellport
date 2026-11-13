@@ -4,6 +4,10 @@ All notable changes to Shellport are listed here. Versions follow [semantic vers
 
 ## [Unreleased]
 
+### Added
+- Releases include a `SHA256SUMS` file to verify downloads.
+- The licenses of all third-party software included in Shellport are listed in `THIRD_PARTY_LICENSES.md`, installed with the app and attached to each release.
+
 ## [0.2.1] - 2026-11-11
 
 ### Added

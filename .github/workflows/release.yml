@@ -71,7 +71,11 @@ jobs:
       - name: Run tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 
+      - name: Generate third-party license notices
+        run: node dev/third-party-licenses.mjs
+
       - name: Build and attach to draft release
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,6 +94,36 @@ jobs:
 
             Full install steps: https://github.com/${{ github.repository }}#install
 
+            ## Verify your download
+
+            Download `SHA256SUMS` into the same folder, then run:
+
+            ```bash
+            sha256sum --check --ignore-missing SHA256SUMS
+            ```
+
+            Licenses of the third-party software included in Shellport are listed in `THIRD_PARTY_LICENSES.md` (also attached).
+
             ## What's new
 
             <!-- Edit this draft before publishing. -->
+
+      - name: Attach checksums and license notices
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        run: |
+          set -euo pipefail
+          bundle=src-tauri/target/release/bundle
+          mkdir -p dist-release
+          cp "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage dist-release/
+          cp THIRD_PARTY_LICENSES.md dist-release/
+          (cd dist-release && sha256sum *.deb *.AppImage > SHA256SUMS && cat SHA256SUMS)
+          repo="${{ github.repository }}"
+          # Upload by release ID: the release is still a draft, so it can't be looked up by tag.
+          for f in SHA256SUMS THIRD_PARTY_LICENSES.md; do
+            old=$(gh api "repos/$repo/releases/$RELEASE_ID/assets" --jq ".[] | select(.name == \"$f\") | .id")
+            if [ -n "$old" ]; then gh api -X DELETE "repos/$repo/releases/assets/$old"; fi
+            gh api -X POST "https://uploads.github.com/repos/$repo/releases/$RELEASE_ID/assets?name=$f" \
+              -H "Content-Type: text/plain" --input "dist-release/$f" --jq .browser_download_url
+          done

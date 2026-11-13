@@ -159,6 +159,16 @@ To update, download the newer `.deb` and run the same command.
 > **AppImage won't start?** AppImages need FUSE 2. Install it with
 > `sudo apt install libfuse2t64` (Ubuntu 24.04+) or `sudo apt install libfuse2` (Ubuntu 22.04 / Debian).
 
+### Verify your download (optional)
+
+Releases include a `SHA256SUMS` file. Download it into the same folder as the package and run:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+It should print `OK` next to the file you downloaded.
+
 ## Getting started
 
 1. **Create your vault.** On first launch, open the **Vault** (shield icon on the left) and choose a master password. It encrypts everything you store and **cannot be recovered**, so keep it safe. Tick *Unlock automatically via system keyring* if you don't want to type it after every login.
@@ -287,3 +297,5 @@ Bug reports, ideas and pull requests are welcome. Read the [contributing guide](
 ## License
 
 [MIT](LICENSE) © 2026 The Shellport authors
+
+Shellport includes third-party software under its own licenses (mostly MIT and Apache-2.0); see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The file is also installed with the app.
