@@ -1,5 +1,7 @@
 # Builds the website (website/) and publishes it to GitHub Pages at
 # https://earvinink.github.io/shellport/ whenever it changes on main.
+# Pull requests that touch it (e.g. Dependabot bumps) only build it, so a
+# broken build shows up before merging.
 # Pages must be set to "GitHub Actions" in the repo's Settings → Pages.
 
 name: Website
@@ -7,6 +9,8 @@ name: Website
 on:
   push:
     branches: [main]
+    paths: ["website/**", ".github/workflows/pages.yml"]
+  pull_request:
     paths: ["website/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
@@ -16,8 +20,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -47,12 +51,14 @@ jobs:
         run: pnpm build
 
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: website/dist
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

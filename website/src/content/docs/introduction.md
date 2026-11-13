@@ -22,6 +22,6 @@ It's free, open source (MIT) and private by design: no accounts, no telemetry, n
 
 ## Where to go next
 
-1. [Install Shellport](/docs/install/) using the `.deb` package or the AppImage.
-2. Follow the [Quick start](/docs/getting-started/) to create your vault and connect to your first server.
+1. [Install Shellport](install/) using the `.deb` package or the AppImage.
+2. Follow the [Quick start](getting-started/) to create your vault and connect to your first server.
 3. Browse the feature guides in the sidebar when you need details.

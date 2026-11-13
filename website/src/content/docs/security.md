@@ -32,4 +32,4 @@ Your data lives in `~/.config/shellport/` (`hosts.json`, `settings.json`, `vault
 
 ## Reporting a vulnerability
 
-Please report security issues privately via the [contact page](/contact/) rather than a public issue.
+Please report security issues privately via the [contact page](../../contact/) rather than a public issue.

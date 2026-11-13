@@ -9,7 +9,7 @@ order: 10.5
 
 Put several terminals in one tab, side by side or stacked. Use **Split right** and **Split down** in a pane's corner, or the command palette, which also has *Open host in a split*. Drag the divider to resize, and close a pane from its corner.
 
-With *Restore tabs on startup* on, splits come back with your tabs. On hosts using [tmux](/docs/hosts-and-ssh/#keep-work-running-with-tmux), each pane picks up exactly where it was.
+With *Restore tabs on startup* on, splits come back with your tabs. On hosts using [tmux](../hosts-and-ssh/#keep-work-running-with-tmux), each pane picks up exactly where it was.
 
 ## Workspaces
 
