@@ -4813,7 +4813,7 @@ dependencies = [
  "log",
  "parking_lot",
  "portable-pty",
- "rand 0.8.8",
+ "rand 0.10.3",
  "russh",
  "russh-sftp",
  "rustls",
