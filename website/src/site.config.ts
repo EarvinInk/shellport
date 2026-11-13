@@ -41,6 +41,13 @@ export const site = {
     buyMeACoffee: '',
   },
 
+  // Search engine ownership checks. Paste only the content="…" value of the
+  // <meta> tag that Google Search Console / Bing Webmaster Tools gives you.
+  verification: {
+    google: '',
+    bing: '',
+  },
+
   // Shown in the footer under "More from …", e.g.
   // { name: 'Project One', description: 'A short one-line description.', url: 'https://one.example.com' },
   otherProjects: [] as { name: string; description: string; url: string }[],

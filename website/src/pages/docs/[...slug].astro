@@ -22,7 +22,7 @@ const sections = ['Getting started', 'Features', 'Reference'] as const;
 const href = (id: string) => u(id === 'introduction' ? '/docs/' : `/docs/${id}/`);
 const editUrl = `${site.repo}/edit/main/website/src/content/docs/${entry.id}.md`;
 ---
-<Base title={entry.data.title} description={entry.data.description}>
+<Base fullTitle={entry.id === 'introduction' ? 'Shellport documentation' : `${entry.data.title}: Shellport docs`} description={entry.data.description}>
   <div class="docs container">
     <aside class="sidebar" id="docs-sidebar">
       <button class="side-toggle" type="button" aria-expanded="false" aria-controls="docs-nav">
