@@ -3,3 +3,9 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/EarvinInk/shellport/security/advisories/new
     about: Please report security issues privately, not as a public issue.
+  - name: Ask a question
+    url: https://github.com/EarvinInk/shellport/discussions/categories/q-a
+    about: Questions about setup or usage. Please ask in Discussions instead of opening an issue.
+  - name: Share an idea
+    url: https://github.com/EarvinInk/shellport/discussions/categories/ideas
+    about: Not sure it's a feature request yet? Start a conversation in Discussions.

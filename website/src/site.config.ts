@@ -24,7 +24,7 @@ export const site = {
     issues: `${repo}/issues`,
     newBug: `${repo}/issues/new?template=bug_report.yml`,
     newFeature: `${repo}/issues/new?template=feature_request.yml`,
-    discussions: '', // turn on Discussions in the repo, then use `${repo}/discussions`
+    discussions: `${repo}/discussions`,
     security: `${repo}/security/advisories/new`,
     changelog: `${repo}/blob/main/CHANGELOG.md`,
     license: `${repo}/blob/main/LICENSE`,
