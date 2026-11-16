@@ -2,7 +2,7 @@
   "name": "shellport",
   "private": true,
   "version": "0.2.1",
-  "description": "SSH, SFTP and Docker client for Linux",
+  "description": "SSH, SFTP, Docker and PostgreSQL client for Linux",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,7 +1,7 @@
 [package]
 name = "shellport"
 version = "0.2.1"
-description = "SSH, SFTP and Docker client for Linux"
+description = "SSH, SFTP, Docker and PostgreSQL client for Linux"
 authors = ["kevin <kevinsreelatha@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/EarvinInk/shellport"

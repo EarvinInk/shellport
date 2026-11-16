@@ -28,7 +28,19 @@ Host keys are verified against `~/.ssh/known_hosts` (hashed names, wildcards and
 
 ## Where your data lives
 
-Your data lives in `~/.config/shellport/` (`hosts.json`, `settings.json`, `vault.bin`), readable only by you (mode `0600`).
+Your data lives in `~/.config/shellport/`, which only you can read (folder mode `0700`, files `0600`):
+
+| File | Holds |
+|---|---|
+| `hosts.json` | Saved hosts, groups and notes |
+| `databases.json` | Database connections (passwords are in the vault) |
+| `library.json` | The commands library and saved workspaces |
+| `settings.json` | Settings |
+| `session.json` | Open tabs and panes, restored on startup |
+| `activity.json` | Activity history (queries, multi-host runs, transfers) |
+| `vault.bin` | The encrypted vault |
+| `logs/` | Terminal logs, only for hosts where you turn them on |
+| `tmp/` | Copies of remote files open in your own editor |
 
 ## Reporting a vulnerability
 
