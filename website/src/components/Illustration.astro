@@ -5,11 +5,11 @@ interface Props { kind: 'sql' | 'hosts' }
 const { kind } = Astro.props;
 
 const rows = [
-  ['1041', 'Ada Lovelace', 'paid', '149.00'],
-  ['1042', 'Alan Turing', 'paid', '89.50'],
-  ['1043', 'Grace Hopper', 'refunded', '42.00'],
-  ['1044', 'Linus Torvalds', 'paid', '310.25'],
-  ['1045', 'Margaret Hamilton', 'pending', '57.80'],
+  ['1041', 'Northwind Ltd', 'paid', '149.00'],
+  ['1042', 'Blue Harbor', 'paid', '89.50'],
+  ['1043', 'Lumen Labs', 'refunded', '42.00'],
+  ['1044', 'Pine & Co', 'paid', '310.25'],
+  ['1045', 'Orbit Studio', 'pending', '57.80'],
 ];
 
 const hosts = [
@@ -68,7 +68,7 @@ const hosts = [
 
 <style>
   .ill {
-    margin: 0; border-radius: 14px; overflow: hidden;
+    margin: 0; max-width: 100%; min-width: 0; border-radius: 14px; overflow: hidden;
     background: #0b0e13; border: 1px solid rgba(255,255,255,.08); box-shadow: var(--shadow-lg);
     color: #e4e8ef; font-size: 13.5px;
   }

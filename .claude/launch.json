@@ -3,13 +3,10 @@
   "configurations": [
     {
       "name": "website",
-      "runtimeExecutable": "pnpm",
+      "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "--dir",
-        "website",
-        "dev",
-        "--port",
-        "4321"
+        "-c",
+        ". \"$HOME/.nvm/nvm.sh\" && nvm exec 22 pnpm --dir website dev --port 4321"
       ],
       "port": 4321
     },

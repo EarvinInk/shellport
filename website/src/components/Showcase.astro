@@ -111,6 +111,7 @@ const tabs: Tab[] = [
 
   .panel { display: grid; grid-template-columns: 0.72fr 1.6fr; gap: 56px; align-items: center; animation: fade .45s ease; }
   .panel[hidden] { display: none; }
+  .panel > * { min-width: 0; }
   @keyframes fade { from { opacity: 0; transform: translateY(8px); } }
   .text h3 { font-size: 28px; margin: 22px 0 14px; }
   .text p { color: var(--fg-muted); font-size: 16.5px; }
