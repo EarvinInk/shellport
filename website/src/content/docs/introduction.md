@@ -5,7 +5,7 @@ section: Getting started
 order: 1
 ---
 
-Shellport is a native Linux desktop app that brings together everything you need to work with servers: **SSH terminals**, a **dual-pane SFTP file manager**, **Docker management** (local or over SSH) and an **encrypted secrets vault**, all in one fast window.
+Shellport is a native Linux desktop app that brings together everything you need to work with servers: **SSH terminals**, a **dual-pane SFTP file manager**, **Docker management** (local or over SSH), a **PostgreSQL client** and an **encrypted secrets vault**, all in one fast window.
 
 It's free, open source (MIT) and private by design: no accounts, no telemetry, no cloud.
 

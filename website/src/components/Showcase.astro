@@ -2,22 +2,33 @@
 import { u } from "../lib/url";
 import Icon, { type IconName } from './Icon.astro';
 import AppWindow from './AppWindow.astro';
+import Illustration from './Illustration.astro';
 import terminal from '../assets/screenshots/terminal.png';
 import sftp from '../assets/screenshots/sftp.png';
-import docker from '../assets/screenshots/docker.png';
 import logs from '../assets/screenshots/logs.png';
 import vault from '../assets/screenshots/vault.png';
 
-const tabs: { id: string; icon: IconName; label: string; title: string; body: string; points: string[]; img: ImageMetadata; alt: string; doc: string }[] = [
+type Tab = {
+  id: string; icon: IconName; label: string; title: string; body: string; points: string[]; doc: string;
+} & ({ img: ImageMetadata; alt: string } | { illustration: 'sql' | 'hosts' });
+
+const tabs: Tab[] = [
   {
     id: 'terminals', icon: 'terminal', label: 'Terminals',
     title: 'Every server, one click away',
-    body: 'Save hosts in colour-coded groups, then connect with a double-click. Tabs, search, themes and one-click reconnect come standard.',
-    points: ['Password, vault key, key file or ssh-agent', 'Jump hosts (ProxyJump) and 2FA logins', 'Import straight from ~/.ssh/config'],
+    body: 'Save hosts in colour-coded groups and connect with a double-click. Sessions reconnect on their own after sleep or a network change.',
+    points: ['Password, vault key, key file or ssh-agent; jump hosts and 2FA', 'Command palette (Ctrl+Shift+P) for every host, tab and action', 'Two-way sync with ~/.ssh/config, optional tmux sessions'],
     img: terminal, alt: 'Tabbed SSH terminal with grouped saved hosts', doc: '/docs/hosts-and-ssh/',
   },
   {
-    id: 'sftp', icon: 'folder', label: 'SFTP',
+    id: 'across', icon: 'network', label: 'Across servers',
+    title: 'One command, every server',
+    body: 'Run a command on many hosts at once and get a pass/fail line and output for each. Split panes and broadcast typing cover the interactive work.',
+    points: ['Split panes, saved as workspaces', 'Commands library with {{variables}}', 'Production hosts always ask first'],
+    illustration: 'hosts', doc: '/docs/work-across-servers/',
+  },
+  {
+    id: 'files', icon: 'folder', label: 'Files',
     title: 'Move and edit files without leaving the app',
     body: 'A dual-pane local ↔ remote browser with one transfer queue for every tab: pause, resume and retry, even after a dropped connection.',
     points: ['Copy straight from one server to another', 'Edit remote files, or open them in your own editor', 'Work as root with sudo; compress and extract'],
@@ -26,22 +37,22 @@ const tabs: { id: string; icon: IconName; label: string; title: string; body: st
   {
     id: 'docker', icon: 'box', label: 'Docker',
     title: 'Containers, local or over SSH',
-    body: 'Manage the local engine or any server you can SSH into, with no Docker port exposed. Containers are grouped by Compose project.',
-    points: ['Start, stop, restart, exec into a shell', 'Images, volumes, networks and prune', 'Pull from private registries'],
-    img: docker, alt: 'Docker view listing a Compose project', doc: '/docs/docker/',
+    body: 'Manage the local engine or any server you can SSH into, with no Docker port exposed. Follow a whole Compose project’s logs, merged and colour-coded.',
+    points: ['Start, stop, restart, open a shell', 'Images, volumes, networks and cleanup', 'Pull from private registries'],
+    img: logs, alt: 'Merged, colour-coded logs from all containers of a Compose project', doc: '/docs/docker/',
   },
   {
-    id: 'logs', icon: 'logs', label: 'Logs',
-    title: 'A whole stack’s logs, merged',
-    body: 'Follow one container or every container in a Compose project at once, interleaved in time order and colour-coded by service.',
-    points: ['Live streaming with search', 'Colour per container', 'Works over SSH too'],
-    img: logs, alt: 'Merged colour-coded logs from a Compose project', doc: '/docs/docker/#live-logs',
+    id: 'databases', icon: 'database', label: 'Databases',
+    title: 'PostgreSQL, straight through SSH',
+    body: 'A built-in client with a schema browser, SQL editor and fast result grid. Connect directly or through any saved host, jump hosts included.',
+    points: ['Read-only or “confirm risky” per connection', 'Open-transaction indicator with Commit / Rollback', 'Works behind PgBouncer and Supabase poolers'],
+    illustration: 'sql', doc: '/docs/databases/',
   },
   {
     id: 'vault', icon: 'shield', label: 'Vault',
     title: 'Secrets that stay yours',
-    body: 'Passwords, private keys and API tokens live in one encrypted file, unlocked by a master password only you know.',
-    points: ['Argon2id + XChaCha20-Poly1305', 'Generate ed25519 keys in-app', 'Auto-lock and optional keyring unlock'],
+    body: 'Passwords, private keys, database credentials and API tokens live in one encrypted file, unlocked by a master password only you know.',
+    points: ['Argon2id + XChaCha20-Poly1305', 'Generate ed25519 keys in-app', 'Encrypted backup & restore for a new machine'],
     img: vault, alt: 'The vault holding passwords and a private key', doc: '/docs/vault/',
   },
 ];
@@ -50,8 +61,8 @@ const tabs: { id: string; icon: IconName; label: string; title: string; body: st
   <div class="container">
     <div class="section-head reveal">
       <span class="eyebrow">Everything in one place</span>
-      <h2>Stop juggling five tools to ship one fix</h2>
-      <p>Terminal, file transfer, container control and secrets, built to work together.</p>
+      <h2>Stop juggling tools to ship one fix</h2>
+      <p>Terminals, file transfers, containers, databases and secrets, built to work together.</p>
     </div>
 
     <div class="tabs reveal" role="tablist" aria-label="Shellport features">
@@ -72,7 +83,9 @@ const tabs: { id: string; icon: IconName; label: string; title: string; body: st
             <ul>{t.points.map((p) => <li><Icon name="check" size={16} />{p}</li>)}</ul>
             <a class="more" href={u(t.doc)}>Read the guide <Icon name="arrowRight" size={15} /></a>
           </div>
-          <div class="shot"><AppWindow src={t.img} alt={t.alt} title={`Shellport — ${t.label}`} /></div>
+          <div class="shot">{'img' in t
+            ? <AppWindow src={t.img} alt={t.alt} title={`Shellport — ${t.label}`} />
+            : <Illustration kind={t.illustration} />}</div>
         </div>
       ))}
     </div>

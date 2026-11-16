@@ -4,9 +4,9 @@
 
 # Shellport
 
-**SSH, SFTP and Docker in one native Linux app.**
+**SSH, SFTP, Docker and PostgreSQL in one native Linux app.**
 
-Terminals, file transfers, containers and an encrypted secrets vault, all in a single fast desktop window.
+Terminals, file transfers, containers, databases and an encrypted secrets vault, all in a single fast desktop window.
 
 **[Website](https://earvinink.github.io/shellport/)** · **[Documentation](https://earvinink.github.io/shellport/docs/)** · **[Download](https://earvinink.github.io/shellport/download/)**
 

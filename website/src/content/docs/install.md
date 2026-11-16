@@ -11,7 +11,7 @@ Download the latest version from the [Download page](../../download/). There are
 
 | File | Best for | Size |
 |---|---|---|
-| `Shellport_<version>_amd64.deb` | Ubuntu, Debian, Linux Mint, Pop!_OS | ~7 MB |
+| `Shellport_<version>_amd64.deb` | Ubuntu, Debian, Linux Mint, Pop!_OS | ~9 MB |
 | `Shellport_<version>_amd64.AppImage` | Any distribution, no install needed | ~85 MB |
 
 ## Option A: .deb package
