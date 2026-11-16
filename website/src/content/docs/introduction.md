@@ -11,14 +11,16 @@ It's free, open source (MIT) and private by design: no accounts, no telemetry, n
 
 ## What you can do
 
-- Open tabbed **SSH and local terminals** with search, themes and one-click reconnect.
+- Open tabbed **SSH and local terminals** with search and themes. They **reconnect on their own** after sleep or a network change, optionally inside **tmux**.
 - Save hosts in **colour-coded groups** and sign in with a password, a vault key, a key file or ssh-agent.
 - Reach private machines through **jump hosts** and forward ports with **`ssh -L`** tunnels.
 - Split terminals into **panes**, save **workspaces**, keep a **commands library**, and **run a command on many hosts** at once.
 - **Transfer files** through one queue with pause, resume and retry, **copy between servers**, and **edit remote files** in the built-in editor or your own.
 - Manage **Docker** containers, images, volumes and networks, locally or on any SSH host.
 - Browse and query **PostgreSQL** databases, directly or through an SSH host.
-- Keep **passwords, private keys and API tokens** in an encrypted vault.
+- Find any host, database, tab or action with the **command palette** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>).
+- Mark **production servers** so risky actions on them always ask first.
+- Keep **passwords, private keys and API tokens** in an encrypted vault, and move everything to a new machine with an encrypted **backup**.
 
 ## Where to go next
 

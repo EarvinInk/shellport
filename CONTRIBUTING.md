@@ -68,7 +68,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked  # Rust unit test
 
 If the formatting check fails, run `cargo fmt --manifest-path src-tauri/Cargo.toml` to fix it.
 
-If you changed the website:
+If you changed the website (it needs Node.js 22.23 or newer):
 
 ```bash
 pnpm --dir website install

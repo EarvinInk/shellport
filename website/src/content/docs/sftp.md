@@ -35,7 +35,7 @@ Double-click a text file, or select it and click **Edit**, to open it in a tab w
 - <kbd>Ctrl</kbd>+<kbd>S</kbd> saves. A dot on the tab marks unsaved changes, and closing the tab asks first.
 - If the file **changed on the server** since you opened it, Shellport asks before replacing it: overwrite, reload (losing your changes) or save a copy on this computer.
 - Saves never leave a half-written file: Shellport writes a temporary file next to it and swaps it in, keeping the file's permissions. Symlinks are saved through to the file they point to.
-- Files up to 5 MB open in the editor. Binary files are refused; text that isn't UTF-8 opens read-only.
+- Files up to 5 MB open in the editor; larger files can be opened in your own editor (up to 200 MB). Binary files are refused; text that isn't UTF-8 opens read-only.
 
 ### Open in my editor
 
