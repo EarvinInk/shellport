@@ -6,7 +6,7 @@ const repo = 'https://github.com/EarvinInk/shellport';
 
 export const site = {
   name: 'Shellport',
-  tagline: 'SSH, SFTP and Docker in one native Linux app.',
+  tagline: 'SSH, SFTP, Docker and PostgreSQL in one native Linux app.',
   url: 'https://earvinink.github.io/shellport',
   version: '0.2.1',
   releaseDate: '2026-11-11',

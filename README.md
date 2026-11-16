@@ -4,9 +4,9 @@
 
 # Shellport
 
-**SSH, SFTP and Docker in one native Linux app.**
+**SSH, SFTP, Docker and PostgreSQL in one native Linux app.**
 
-Terminals, file transfers, containers and an encrypted secrets vault, all in a single fast desktop window.
+Terminals, file transfers, containers, databases and an encrypted secrets vault, all in a single fast desktop window.
 
 **[Website](https://earvinink.github.io/shellport/)** · **[Documentation](https://earvinink.github.io/shellport/docs/)** · **[Download](https://earvinink.github.io/shellport/download/)**
 
@@ -208,7 +208,7 @@ It should print `OK` next to the file you downloaded.
 - **Host keys** are verified against `~/.ssh/known_hosts` (hashed names, wildcards and `@revoked` entries included). On a changed key Shellport sends no password or key unless you explicitly replace the saved key.
 - **Downloads** never write outside the folder you choose and never follow symlinks, even if a server sends hostile file names.
 - **Links** in terminal output open in your browser only after you confirm, and only `http(s)` links.
-- Your data lives in `~/.config/shellport/` (`hosts.json`, `settings.json`, `vault.bin`), readable only by you (mode 0600).
+- Your data lives in `~/.config/shellport/`, readable only by you (folder mode 0700, files 0600): hosts (`hosts.json`), database connections (`databases.json`), saved commands and workspaces (`library.json`), settings, open tabs (`session.json`), Activity history (`activity.json`) and the vault (`vault.bin`), plus opt-in terminal logs in `logs/`.
 
 Found a security issue? Please report it privately via [GitHub security advisories](https://github.com/EarvinInk/shellport/security/advisories/new) rather than a public issue.
 
@@ -229,7 +229,7 @@ Files and transfers:
 sudo apt remove shellport
 ```
 
-For the AppImage, just delete the file. Your hosts, settings and vault stay in `~/.config/shellport/`; delete that folder too if you want to remove everything (this permanently deletes your vault).
+For the AppImage, just delete the file. Your hosts, database connections, history, settings and vault stay in `~/.config/shellport/`; delete that folder too if you want to remove everything (this permanently deletes your vault).
 
 ## Build from source
 

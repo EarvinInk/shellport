@@ -5,7 +5,7 @@ section: Features
 order: 13
 ---
 
-The vault keeps **passwords, private keys and API tokens** in one encrypted file, protected by a master password.
+The vault keeps **passwords, private keys, database passwords and API tokens** in one encrypted file, protected by a master password. Hosts and database connections refer to vault entries, so secrets never end up in their settings files.
 
 ## Creating the vault
 

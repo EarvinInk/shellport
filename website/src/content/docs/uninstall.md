@@ -17,6 +17,6 @@ Just delete the file.
 
 ## Removing your data
 
-Your hosts, settings and vault stay in `~/.config/shellport/`. Delete that folder too if you want to remove everything.
+Your hosts, database connections, commands library, history, settings and vault stay in `~/.config/shellport/`. Delete that folder too if you want to remove everything.
 
 > Deleting `~/.config/shellport/` **permanently deletes your vault**.

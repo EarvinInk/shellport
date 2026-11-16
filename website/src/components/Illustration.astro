@@ -1,0 +1,112 @@
+---
+// Styled examples for features that don't have a screenshot yet.
+// Replace them with <AppWindow> screenshots when those are taken.
+interface Props { kind: 'sql' | 'hosts' }
+const { kind } = Astro.props;
+
+const rows = [
+  ['1041', 'Northwind Ltd', 'paid', '149.00'],
+  ['1042', 'Blue Harbor', 'paid', '89.50'],
+  ['1043', 'Lumen Labs', 'refunded', '42.00'],
+  ['1044', 'Pine & Co', 'paid', '310.25'],
+  ['1045', 'Orbit Studio', 'pending', '57.80'],
+];
+
+const hosts = [
+  { name: 'web-01', addr: '198.51.100.11', ok: true, out: 'active' },
+  { name: 'web-02', addr: '198.51.100.12', ok: true, out: 'active' },
+  { name: 'web-03', addr: '198.51.100.13', ok: true, out: 'active' },
+  { name: 'api-01', addr: '198.51.100.21', ok: true, out: 'active' },
+  { name: 'api-02', addr: '198.51.100.22', ok: false, out: 'inactive (exit 3)' },
+];
+---
+{kind === 'sql' && (
+  <figure class="ill" aria-label="Example: a SQL query and its results in Shellport's database client">
+    <div class="bar">
+      <span class="dot" style="--c:#22c55e"></span>
+      <span class="name">shop · production</span>
+      <span class="badge prod">PROD</span>
+      <span class="badge">Read-only</span>
+      <span class="spacer"></span>
+      <span class="via">via bastion → db-01</span>
+    </div>
+    <pre class="sql"><span class="ln">1</span><span class="k">SELECT</span> id, customer, status, total
+<span class="ln">2</span>  <span class="k">FROM</span> orders
+<span class="ln">3</span> <span class="k">WHERE</span> created_at &gt; now() - <span class="s">interval '1 day'</span>
+<span class="ln">4</span> <span class="k">ORDER BY</span> id <span class="k">LIMIT</span> <span class="n">5</span>;</pre>
+    <div class="grid" role="table">
+      <div class="tr th" role="row"><span>id</span><span>customer</span><span>status</span><span class="r">total</span></div>
+      {rows.map((r) => (
+        <div class="tr" role="row"><span class="n">{r[0]}</span><span>{r[1]}</span><span class:list={['st', r[2]]}>{r[2]}</span><span class="r n">{r[3]}</span></div>
+      ))}
+    </div>
+    <div class="foot"><span>5 rows</span><span>Ctrl+Enter runs the script or the selection</span></div>
+  </figure>
+)}
+
+{kind === 'hosts' && (
+  <figure class="ill" aria-label="Example: one command run on five hosts with a result per host">
+    <div class="bar">
+      <span class="name">Run on hosts</span>
+      <span class="badge">5 hosts</span>
+      <span class="spacer"></span>
+      <span class="sum"><b>4</b> of 5 OK</span>
+    </div>
+    <pre class="cmd"><span class="p">$</span> systemctl is-active <span class="v">nginx</span></pre>
+    <ul class="hosts">
+      {hosts.map((h) => (
+        <li class:list={{ fail: !h.ok }}>
+          <span class="mark">{h.ok ? '✓' : '✕'}</span>
+          <span class="h"><b>{h.name}</b><small>{h.addr}</small></span>
+          <code>{h.out}</code>
+        </li>
+      ))}
+    </ul>
+    <div class="foot"><span>Production hosts ask before every run</span><span>{'{{host}}, {{user}} and {{name}} are filled in per host'}</span></div>
+  </figure>
+)}
+
+<style>
+  .ill {
+    margin: 0; max-width: 100%; min-width: 0; border-radius: 14px; overflow: hidden;
+    background: #0b0e13; border: 1px solid rgba(255,255,255,.08); box-shadow: var(--shadow-lg);
+    color: #e4e8ef; font-size: 13.5px;
+  }
+  .bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 14px; background: linear-gradient(180deg, #161b24, #10141b); border-bottom: 1px solid #1f2632;
+    font-size: 12.5px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+  .name { font-weight: 600; color: #e4e8ef; }
+  .badge { padding: 2px 8px; border-radius: 999px; background: #1e2531; color: #9aa4b5; font-size: 11.5px; font-weight: 550; }
+  .badge.prod { background: rgba(244,63,94,.15); color: #fb7185; }
+  .spacer { flex: 1; }
+  .via { color: #677285; font-family: var(--font-mono); font-size: 11.5px; }
+  .sum { color: #9aa4b5; } .sum b { color: #22c55e; }
+
+  pre { margin: 0; padding: 14px 16px; font-size: 13px; line-height: 1.75; overflow-x: auto; border-bottom: 1px solid #1f2632; }
+  .ln { display: inline-block; width: 22px; color: #3a4456; user-select: none; }
+  .k { color: #c4b5fd; font-weight: 600; }
+  .s { color: #86efac; }
+  .n { color: #fbbf24; font-family: var(--font-mono); }
+  .p { color: #8b5cf6; } .v { color: #67e8f9; }
+
+  .grid { font-family: var(--font-mono); font-size: 12.5px; overflow-x: auto; }
+  .tr { display: grid; grid-template-columns: 70px minmax(140px, 1.6fr) minmax(90px, 1fr) 90px; gap: 12px; padding: 7px 16px; border-bottom: 1px solid #161b24; white-space: nowrap; }
+  .th { color: #677285; font-family: var(--font-sans); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; background: #10141b; }
+  .tr:not(.th):hover { background: #121722; }
+  .r { text-align: right; }
+  .st.paid { color: #22c55e; } .st.refunded { color: #fb7185; } .st.pending { color: #f59e0b; }
+
+  .hosts { list-style: none; margin: 0; padding: 6px 0; }
+  .hosts li { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 12px; padding: 9px 16px; border-bottom: 1px solid #161b24; }
+  .mark { color: #22c55e; font-weight: 700; }
+  .fail .mark { color: #fb7185; }
+  .h { display: flex; flex-direction: column; line-height: 1.3; }
+  .h b { font-weight: 600; } .h small { color: #677285; font-family: var(--font-mono); font-size: 11.5px; }
+  .hosts code { font-size: 12.5px; color: #9aa4b5; background: #151a23; padding: 2px 8px; border-radius: 6px; }
+  .fail code { color: #fb7185; background: rgba(244,63,94,.1); }
+
+  .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 9px 16px; background: #10141b; color: #677285; font-size: 12px; }
+</style>

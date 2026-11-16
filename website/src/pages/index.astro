@@ -10,28 +10,29 @@ import { site, hasDonate } from '../site.config';
 import hostkey from '../assets/screenshots/hostkey.png';
 
 const features: { icon: IconName; title: string; body: string }[] = [
-  { icon: 'route', title: 'Jump hosts', body: 'Reach private servers through a bastion with ProxyJump, configured per host.' },
-  { icon: 'phone', title: 'Two-factor logins', body: 'Keyboard-interactive auth for one-time codes and other 2FA prompts.' },
-  { icon: 'arrows', title: 'Port forwarding', body: 'Per-host ssh -L tunnels that can start automatically when you connect.' },
-  { icon: 'fileImport', title: 'Import ~/.ssh/config', body: 'Brings in Include, Host * defaults and ProxyJump, so setup takes seconds.' },
-  { icon: 'server', title: 'Remote Docker', body: 'Control Docker on any SSH host, tunnelled. No exposed daemon port.' },
+  { icon: 'command', title: 'Command palette', body: 'Ctrl+Shift+P jumps to any host, database, tab or action, most used first.' },
+  { icon: 'refresh', title: 'Reconnects on its own', body: 'Sessions come back after sleep or a network change, optionally inside tmux.' },
+  { icon: 'route', title: 'Jump hosts & 2FA', body: 'Reach private servers through a bastion, with one-time-code logins.' },
+  { icon: 'fileImport', title: 'Two-way ~/.ssh/config sync', body: 'Imported hosts stay in sync with the file; only their own lines are edited.' },
   { icon: 'layers', title: 'Split panes & workspaces', body: 'Several terminals in one tab, saved as a workspace and reopened from the palette.' },
-  { icon: 'zap', title: 'Run on many hosts', body: 'One command on every host you pick, with a pass/fail line and output for each.' },
-  { icon: 'book', title: 'Commands library', body: 'Saved commands with {{variables}}, pasted or run from the palette.' },
+  { icon: 'book', title: 'Commands library', body: 'Saved commands with {{variables}}, for all hosts or chosen groups.' },
+  { icon: 'arrows', title: 'Transfer queue', body: 'Pause, resume and retry uploads, downloads and server-to-server copies.' },
+  { icon: 'code', title: 'Edit remote files', body: 'Built-in editor with syntax highlighting, or your own editor with upload on save.' },
+  { icon: 'server', title: 'Remote Docker', body: 'Control Docker on any SSH host, tunnelled. No exposed daemon port.' },
   { icon: 'logs', title: 'Activity & history', body: 'Queries, multi-host runs and transfers in one searchable local record.' },
-  { icon: 'key', title: 'ed25519 key generation', body: 'Create keys inside the vault and copy the public key for authorized_keys.' },
-  { icon: 'timer', title: 'Auto-lock', body: 'The vault locks itself after a period of inactivity that you choose.' },
-  { icon: 'sliders', title: 'Make it yours', body: 'Four terminal themes, fonts, cursor styles and a startup command per host.' },
+  { icon: 'archive', title: 'Encrypted backup', body: 'Move hosts, connections, settings and secrets to a new machine in one file.' },
+  { icon: 'sliders', title: 'Make it yours', body: 'Terminal themes, fonts, notes per host and a startup command per host.' },
 ];
 
 const security: { icon: IconName; title: string; body: string }[] = [
   { icon: 'lock', title: 'Strong vault encryption', body: 'Argon2id (64 MiB, 3 passes) key derivation and XChaCha20-Poly1305. Tampering is detected.' },
   { icon: 'shieldAlert', title: 'Strict host-key checks', body: 'Verified against ~/.ssh/known_hosts. A changed key is blocked before any secret is sent.' },
+  { icon: 'alert', title: 'Guard rails for production', body: 'Mark production hosts: risky SQL, broadcast typing and multi-host runs ask first, and connections can be read-only.' },
   { icon: 'eyeOff', title: 'Nothing phones home', body: 'No telemetry, no accounts, no cloud. Shellport only talks to servers you choose.' },
 ];
 
 const stats = [
-  { value: '~7 MB', label: '.deb download' },
+  { value: site.downloads.deb.size, label: '.deb download' },
   { value: 'Rust', label: 'Native core (Tauri 2)' },
   { value: '0', label: 'Trackers or accounts' },
   { value: 'MIT', label: 'Open-source license' },
@@ -41,7 +42,7 @@ const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
   name: site.name,
-  description: `${site.tagline} Terminals, file transfers, containers and an encrypted vault in one fast desktop window.`,
+  description: `${site.tagline} Terminals, file transfers, containers, databases and an encrypted vault in one fast desktop window.`,
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'Linux',
   softwareVersion: site.version,
